@@ -107,6 +107,10 @@ async function runWorkflow(op,dados,button){
    }
    render();show("despachos");
    showNotice("Despacho registado. A sincronizar a lista automaticamente.");
+  }else if(op==="pagamento.registar"){
+   const row=rows.find(x=>x.id===original?.id);
+   if(row){row.raw={...(row.raw||{}),"F. de Pagamento":dados.forma_pagamento,"Ref. Pagamento":dados.referencia,"Data de Saída":dados.data_saida,Status:"Pago"};row.estado="Pago";row.dataSaida=dados.data_saida;row.awaitingSync=true;}
+   render();show("despesas");showNotice("Saída bancária confirmada. A sincronizar o estado Pago.");
   }else{
    showNotice("Operação confirmada. A actualizar os dados.");
   }
