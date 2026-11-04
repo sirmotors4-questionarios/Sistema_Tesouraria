@@ -51,18 +51,32 @@ function chosenDispatchAccount(){
  const key=$("workflow-dispatch-account").value;
  return dispatchAccounts().find(a=>String(a.ID_Conta??"").trim()===key)||null;
 }
+function populateDispatchAccounts(){
+ const bank=$("workflow-dispatch-bank").value;
+ const accounts=dispatchAccounts().filter(a=>String(a.Banco??"").trim()===bank);
+ const sel=$("workflow-dispatch-account");
+ sel.replaceChildren(new Option(bank?"Seleccione a designação da conta":"Seleccione primeiro o banco",""),...accounts.map(a=>new Option(String(a.Designacao_Conta??"Conta")+(a.Moeda?" · "+a.Moeda:""),String(a.ID_Conta))));
+ sel.disabled=!bank||!accounts.length;
+ $("workflow-submit-dispatch").disabled=true;
+ $("workflow-dispatch-account-info").textContent=bank?accounts.length+" conta(s) disponível(is) no banco seleccionado. Escolha a designação.":"Seleccione primeiro o banco.";
+}
 function fillSpontaneousDispatch(){
- const accounts=dispatchAccounts(),sel=$("workflow-dispatch-account");
- sel.disabled=false;$("workflow-dispatch-date").disabled=false;$("workflow-dispatch-amount").disabled=false;$("workflow-dispatch-number").disabled=false;
- sel.replaceChildren(new Option("Seleccione a conta",""),...accounts.map(a=>new Option(String(a.Banco??"Banco")+" — "+String(a.Designacao_Conta??"Conta")+(a.Moeda?" · "+a.Moeda:""),String(a.ID_Conta))));
+ const accounts=dispatchAccounts(),banks=[...new Set(accounts.map(a=>String(a.Banco??"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt"));
+ const bank=$("workflow-dispatch-bank");
+ bank.replaceChildren(new Option("Seleccione o banco",""),...banks.map(x=>new Option(x,x)));
  $("workflow-dispatch-date").value=new Date().toLocaleDateString("en-CA");
  $("workflow-dispatch-number").value=spontaneousDispatchCode($("workflow-dispatch-date").value);
  $("workflow-dispatch-amount").value=Number(currentExpense?.valor??0).toFixed(2);
- $("workflow-dispatch-account-info").textContent=accounts.length?accounts.length+" conta(s) activa(s) desta empresa. O servidor verifica a conta e o código antes de confirmar o despacho.":!Array.isArray(cadastros.tblContas)?"A API de consulta ainda não disponibiliza tblContas. Importe a solução V9.27 e volte a conectar a base de dados.":"Nenhuma conta activa encontrada para esta empresa. Verifique o cadastro tblContas e a associação ID_Empresa.";
- $("workflow-submit-dispatch").disabled=!accounts.length||!connected||!writeEndpoint;
+ populateDispatchAccounts();
+ $("workflow-dispatch-account-info").textContent=banks.length?banks.length+" banco(s) disponível(is). Seleccione o banco e depois a designação da conta.":!Array.isArray(cadastros.tblContas)?"A consulta ainda não devolve tblContas. Confirme a ligação TES_API_Consultar.":"Não existem contas activas correspondentes à empresa; confirme ID_Empresa no cadastro.";
 }
+$("workflow-dispatch-bank").addEventListener("change",populateDispatchAccounts);
 $("workflow-dispatch-date").addEventListener("change",()=>{$("workflow-dispatch-number").value=spontaneousDispatchCode($("workflow-dispatch-date").value)});
-$("workflow-dispatch-account").addEventListener("change",()=>{const a=chosenDispatchAccount();$("workflow-dispatch-account-info").textContent=a?"Conta seleccionada: "+String(a.Banco??"Banco")+" — "+String(a.Designacao_Conta??"Conta")+". Valor predefinido: "+money(currentExpense?.valor)+".":"Seleccione a conta para preparar o despacho.";});
+$("workflow-dispatch-account").addEventListener("change",()=>{
+ const account=chosenDispatchAccount();
+ $("workflow-submit-dispatch").disabled=!account||!connected||!writeEndpoint;
+ $("workflow-dispatch-account-info").textContent=account?"Conta: "+String(account.Designacao_Conta??"Conta")+" · Valor: "+money(currentExpense?.valor)+".":"Seleccione a designação da conta.";
+});
 $("workflow-cancel-dispatch").addEventListener("click",()=>{$("workflow-dispatch-panel").hidden=true});
 function prepareBankExit(){
  const row=currentExpense;
