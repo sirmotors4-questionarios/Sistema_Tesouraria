@@ -102,7 +102,10 @@ async function runWorkflow(op,dados,button){
  if(saveBusy)return;
  const original=currentExpense;
  saveBusy=true;button.disabled=true;
- saveStatus("pending","A guardar…","A confirmar "+op+" no servidor.");
+ const previousLabel=button.textContent;
+ const dispatching=op==="despacho.registar";
+ if(dispatching)button.textContent="A emitir despacho…";
+ saveStatus("pending",dispatching?"A emitir despacho…":"A guardar…","A confirmar "+op+" no servidor.");
  try{
   const result=await workflowWrite(op,dados);
   saveStatus("success",op==="despesa.eliminar"?"Eliminado":"Gravado","Operação confirmada: "+String(result.id_despesa));
@@ -143,7 +146,7 @@ async function runWorkflow(op,dados,button){
  }catch(err){
   saveStatus("error","Não gravado",String(err.message||err));
   workflowError(err);if(op==="despacho.registar"){$("workflow-dispatch-account-info").textContent=String(err.message||err);$("workflow-dispatch-panel").scrollIntoView({block:"nearest",behavior:"smooth"});}
- }finally{saveBusy=false;button.disabled=false}
+ }finally{saveBusy=false;button.disabled=false;if(dispatching)button.textContent=previousLabel}
 }
 function confirmExpenseDeletion(row){
  const modal=$("delete-expense-dialog");
