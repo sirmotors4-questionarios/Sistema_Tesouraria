@@ -70,7 +70,23 @@ async function runWorkflow(op,dados,button){
   workflowError(err);
  }finally{saveBusy=false;button.disabled=false}
 }
-$("workflow-delete").addEventListener("click",async()=>{const row=currentExpense;if(!row||!pendingExpense(row))return;const key=expenseKey(row);if(!key){$("workflow-detail").textContent="Não é possível eliminar: identificador da despesa não disponível.";return}if(!confirm("Eliminar a despesa pendente "+String(row.requisicao||key)+"? Esta operação exige autorização e confirmação no SharePoint."))return;await runWorkflow("despesa.eliminar",{id_despesa:key,motivo:"Eliminação solicitada pelo utilizador"},$("workflow-delete"))});
+function confirmExpenseDeletion(row){
+ const modal=$("delete-expense-dialog");
+ if(modal.open)return Promise.resolve(false);
+ $("delete-expense-request").textContent=String(row.requisicao||"—");
+ $("delete-expense-company").textContent=String(row.empresa||"—");
+ $("delete-expense-amount").textContent=money(row.valor);
+ return new Promise(resolve=>{
+  const yes=$("delete-expense-confirm"),no=$("delete-expense-cancel");
+  let finished=false;
+  function finish(approved){if(finished)return;finished=true;yes.removeEventListener("click",accept);no.removeEventListener("click",reject);modal.removeEventListener("cancel",onCancel);modal.removeEventListener("close",onClose);if(modal.open)modal.close();resolve(approved)}
+  const accept=()=>finish(true),reject=()=>finish(false),onClose=()=>finish(false),onCancel=e=>{e.preventDefault();finish(false)};
+  yes.addEventListener("click",accept,{once:true});no.addEventListener("click",reject,{once:true});
+  modal.addEventListener("cancel",onCancel);modal.addEventListener("close",onClose);
+  modal.showModal();no.focus();
+ });
+}
+$("workflow-delete").addEventListener("click",async()=>{const row=currentExpense;if(!row||!pendingExpense(row))return;const key=expenseKey(row);if(!key){$("workflow-detail").textContent="Não é possível eliminar: identificador da despesa não disponível.";return}if(!await confirmExpenseDeletion(row))return;await runWorkflow("despesa.eliminar",{id_despesa:key,motivo:"Eliminação solicitada pelo utilizador"},$("workflow-delete"))});
 $("workflow-edit").addEventListener("click",()=>{if(!currentExpense||!pendingExpense(currentExpense))return;const r=currentExpense;dialog.close();openForm(r.id,false,false)});
 $("workflow-pay").addEventListener("click",()=>{$("workflow-dispatch-panel").hidden=true;wfPanel.hidden=!wfPanel.hidden;$("workflow-detail").textContent=wfPanel.hidden?"":"Confirmar saída bancária; a despesa deve estar em Aguardando Saída."});
 $("workflow-dispatch").addEventListener("click",()=>{const r=currentExpense;if(!r||!pendingExpense(r))return;wfPanel.hidden=true;$("workflow-dispatch-panel").hidden=!$("workflow-dispatch-panel").hidden;$("workflow-detail").textContent="Registe os dados do despacho para avançar à etapa Aguardando Saída."});
