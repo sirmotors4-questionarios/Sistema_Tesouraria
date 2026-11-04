@@ -98,16 +98,32 @@ function operationAllowed(op,row){if(!row||!expenseKey(row))return false;if(op==
 async function workflowWrite(op,dados){const row=currentExpense;if(!connected||!writeEndpoint||!cfg.apiEnabled)throw Error("Configure a API V9 em Conectar base de dados.");if(!operationAllowed(op,row))throw Error("Esta operação não é permitida no estado actual ou falta o identificador da despesa.");const payload={operacao:op,id_pedido:crypto.randomUUID(),id_despesa:expenseKey(row),identificacao:expenseIdentity(row),dados};const res=await writeExpenseV9(payload);return res}
 function workflowError(err){const msg=err?.name==="AbortError"?"Tempo esgotado. Consulte o histórico da API antes de repetir.":String(err?.message||"Falha na operação.");$("workflow-detail").textContent=msg}
 function showNotice(message,kind="success"){let box=$("app-notice");if(!box){box=document.createElement("div");box.id="app-notice";box.setAttribute("role","status");box.setAttribute("aria-live","polite");document.body.append(box)}box.textContent=message;box.dataset.kind=kind;box.hidden=false;clearTimeout(showNotice.timer);showNotice.timer=setTimeout(()=>{box.hidden=true},7000)}
+let dispatchProgressTimer=null;
+function dispatchProgressStart(){
+ const box=$("workflow-dispatch-progress");if(!box)return;
+ clearInterval(dispatchProgressTimer);box.hidden=false;box.dataset.state="pending";
+ const started=Date.now(),elapsed=$("workflow-dispatch-elapsed");
+ $("workflow-dispatch-progress-label").textContent="A emitir despacho…";
+ const tick=()=>{elapsed.textContent=Math.floor((Date.now()-started)/1000)+" s"};
+ tick();dispatchProgressTimer=setInterval(tick,1000);
+}
+function dispatchProgressEnd(ok,detail){
+ clearInterval(dispatchProgressTimer);dispatchProgressTimer=null;
+ const box=$("workflow-dispatch-progress");if(!box)return;
+ box.hidden=false;box.dataset.state=ok?"success":"error";
+ $("workflow-dispatch-progress-label").textContent=ok?"Despacho confirmado":detail||"Despacho não confirmado";
+}
 async function runWorkflow(op,dados,button){
  if(saveBusy)return;
  const original=currentExpense;
  saveBusy=true;button.disabled=true;
  const previousLabel=button.textContent;
  const dispatching=op==="despacho.registar";
- if(dispatching)button.textContent="A emitir despacho…";
+ if(dispatching){button.textContent="A emitir despacho…";dispatchProgressStart();}
  saveStatus("pending",dispatching?"A emitir despacho…":"A guardar…","A confirmar "+op+" no servidor.");
  try{
   const result=await workflowWrite(op,dados);
+  if(dispatching)dispatchProgressEnd(true);
   saveStatus("success",op==="despesa.eliminar"?"Eliminado":"Gravado","Operação confirmada: "+String(result.id_despesa));
   dialog.close();
   if(op==="despesa.eliminar"){
@@ -145,7 +161,7 @@ async function runWorkflow(op,dados,button){
   if(!synced){const number=op==="despacho.registar"?dados.numero:null;const paidNr=op==="pagamento.registar"?original?.numero:null;setTimeout(async()=>{const ok=await reloadAfterSave(number,paidNr);if(ok)showNotice("Listagem sincronizada com o SharePoint.");else showNotice("Operação confirmada; sincronização do SharePoint ainda pendente.","warning")},1800)}
  }catch(err){
   saveStatus("error","Não gravado",String(err.message||err));
-  workflowError(err);if(op==="despacho.registar"){$("workflow-dispatch-account-info").textContent=String(err.message||err);$("workflow-dispatch-panel").scrollIntoView({block:"nearest",behavior:"smooth"});}
+  workflowError(err);if(dispatching)dispatchProgressEnd(false,err?.name==="AbortError"?"Tempo limite de resposta. Verifique o histórico antes de tentar novamente.":"Despacho não confirmado");if(op==="despacho.registar"){$("workflow-dispatch-account-info").textContent=String(err.message||err);$("workflow-dispatch-panel").scrollIntoView({block:"nearest",behavior:"smooth"});}
  }finally{saveBusy=false;button.disabled=false;if(dispatching)button.textContent=previousLabel}
 }
 function confirmExpenseDeletion(row){
