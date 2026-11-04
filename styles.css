@@ -42,3 +42,13 @@
 .expense-step-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
 .expense-step-panel .note{font-size:12px}
 @media(max-width:580px){.expense-step-panel{padding:12px}.expense-step-actions .btn{flex:1 1 100%}}
+
+/* Temporizador de emissão: visível no painel sem depender de alertas do navegador */
+.dispatch-progress{display:flex;align-items:center;gap:10px;padding:10px 12px;margin:12px 0;border:1px solid #d9e3ea;border-radius:9px;background:#eef3f7;color:#31465a;font-size:12px}
+.dispatch-progress[hidden]{display:none}
+.dispatch-progress strong{margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}
+.dispatch-progress-dot{height:9px;width:9px;flex:0 0 9px;border-radius:50%;background:#cf9228}
+.dispatch-progress[data-state="success"]{background:#e9f7ee;border-color:#b5dec4;color:#21603b}
+.dispatch-progress[data-state="success"] .dispatch-progress-dot{background:#3a9655}
+.dispatch-progress[data-state="error"]{background:#fff0f1;border-color:#efb7bc;color:#9a2730}
+.dispatch-progress[data-state="error"] .dispatch-progress-dot{background:#bd2537}
