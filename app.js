@@ -26,7 +26,49 @@ function operationAllowed(op,row){if(!row||!expenseKey(row))return false;if(op==
 async function workflowWrite(op,dados){const row=currentExpense;if(!connected||!writeEndpoint||!cfg.apiEnabled)throw Error("Configure a API V9 em Conectar base de dados.");if(!operationAllowed(op,row))throw Error("Esta operação não é permitida no estado actual ou falta o identificador da despesa.");const payload={operacao:op,id_pedido:crypto.randomUUID(),id_despesa:expenseKey(row),identificacao:expenseIdentity(row),dados};const res=await writeExpenseV9(payload);return res}
 function workflowError(err){const msg=err?.name==="AbortError"?"Tempo esgotado. Consulte o histórico da API antes de repetir.":String(err?.message||"Falha na operação.");$("workflow-detail").textContent=msg}
 function showNotice(message,kind="success"){let box=$("app-notice");if(!box){box=document.createElement("div");box.id="app-notice";box.setAttribute("role","status");box.setAttribute("aria-live","polite");document.body.append(box)}box.textContent=message;box.dataset.kind=kind;box.hidden=false;clearTimeout(showNotice.timer);showNotice.timer=setTimeout(()=>{box.hidden=true},7000)}
-async function runWorkflow(op,dados,button){if(saveBusy)return;saveBusy=true;button.disabled=true;saveStatus("pending","A guardar…","A confirmar "+op+" no servidor.");try{const result=await workflowWrite(op,dados);const synced=await reloadAfterSave();saveStatus("success",op==="despesa.eliminar"?"Eliminado":"Gravado","Operação confirmada: "+String(result.id_despesa));$("workflow-detail").textContent=synced?"Operação confirmada; listagem sincronizada.":"Operação confirmada; actualize a consulta para conferir os dados.";wfPanel.hidden=true;if(op==="despesa.eliminar"&&currentExpense){const removed=currentExpense.id;if(!synced){rows=rows.filter(x=>x.id!==removed);render();}dialog.close();}}catch(err){saveStatus("error","Não gravado",String(err.message||err));workflowError(err)}finally{saveBusy=false;button.disabled=false}}
+async function runWorkflow(op,dados,button){
+ if(saveBusy)return;
+ const original=currentExpense;
+ saveBusy=true;button.disabled=true;
+ saveStatus("pending","A guardar…","A confirmar "+op+" no servidor.");
+ try{
+  const result=await workflowWrite(op,dados);
+  saveStatus("success",op==="despesa.eliminar"?"Eliminado":"Gravado","Operação confirmada: "+String(result.id_despesa));
+  dialog.close();
+  if(op==="despesa.eliminar"){
+   rows=rows.filter(x=>x.id!==original?.id);
+   render();
+   showNotice("Despesa eliminada. A actualizar a listagem.");
+  }else if(op==="despacho.registar"){
+   const row=rows.find(x=>x.id===original?.id);
+   if(row){
+    row.raw={...(row.raw||{}),"Nr de Despacho":dados.numero,"Data de Despacho":dados.data,Status:"Aguardando Saída"};
+    row.dataDespacho=dados.data;
+    row.despacho_numero=dados.numero;
+    row.estado="Aguardando Saída";
+    row.awaitingSync=true;
+   }
+   render();show("despachos");
+   showNotice("Despacho registado. A sincronizar a lista automaticamente.");
+  }else{
+   showNotice("Operação confirmada. A actualizar os dados.");
+  }
+  const synced=await reloadAfterSave();
+  if(op==="despacho.registar"){
+   const found=rows.some(x=>String(x.raw?.["Nr de Despacho"]??x.despacho_numero??"").trim()===String(dados.numero).trim());
+   if(!found&&original){
+    const item={...original,raw:{...(original.raw||{}),"Nr de Despacho":dados.numero,"Data de Despacho":dados.data,Status:"Aguardando Saída"},dataDespacho:dados.data,despacho_numero:dados.numero,estado:"Aguardando Saída",awaitingSync:true};
+    rows.push(item);render();
+   }
+   if(synced&&!found)showNotice("Despacho confirmado. A consulta ainda está a sincronizar.", "warning");
+   if(!synced)showNotice("Despacho confirmado. A consulta será actualizada automaticamente.", "warning");
+  }
+  if(!synced)setTimeout(()=>reloadAfterSave(),1800);
+ }catch(err){
+  saveStatus("error","Não gravado",String(err.message||err));
+  workflowError(err);
+ }finally{saveBusy=false;button.disabled=false}
+}
 $("workflow-delete").addEventListener("click",async()=>{const row=currentExpense;if(!row||!pendingExpense(row))return;const key=expenseKey(row);if(!key){$("workflow-detail").textContent="Não é possível eliminar: identificador da despesa não disponível.";return}if(!confirm("Eliminar a despesa pendente "+String(row.requisicao||key)+"? Esta operação exige autorização e confirmação no SharePoint."))return;await runWorkflow("despesa.eliminar",{id_despesa:key,motivo:"Eliminação solicitada pelo utilizador"},$("workflow-delete"))});
 $("workflow-edit").addEventListener("click",()=>{if(!currentExpense||!pendingExpense(currentExpense))return;const r=currentExpense;dialog.close();openForm(r.id,false,false)});
 $("workflow-pay").addEventListener("click",()=>{$("workflow-dispatch-panel").hidden=true;wfPanel.hidden=!wfPanel.hidden;$("workflow-detail").textContent=wfPanel.hidden?"":"Confirmar saída bancária; a despesa deve estar em Aguardando Saída."});
