@@ -52,6 +52,7 @@ function chosenDispatchAccount(){
 }
 function fillSpontaneousDispatch(){
  const accounts=dispatchAccounts(),sel=$("workflow-dispatch-account");
+ sel.disabled=false;$("workflow-dispatch-date").disabled=false;$("workflow-dispatch-amount").disabled=false;$("workflow-dispatch-number").disabled=false;
  sel.replaceChildren(new Option("Seleccione a conta",""),...accounts.map((a,i)=>new Option(String(a.Nome_Conta??a.Nome??a.Banco??a.Nome_Banco??"Conta")+" · "+String(a["Nº de Conta"]??a["Nr de Conta"]??a.Numero_Conta??a.Conta??"").slice(-5),String(a.ID_Conta??a.ID??a["Nº de Conta"]??a["Nr de Conta"]??i))));
  $("workflow-dispatch-date").value=new Date().toLocaleDateString("en-CA");
  $("workflow-dispatch-number").value=spontaneousDispatchCode($("workflow-dispatch-date").value);
@@ -82,7 +83,7 @@ async function runWorkflow(op,dados,button){
   }else if(op==="despacho.registar"){
    const row=rows.find(x=>x.id===original?.id);
    if(row){
-    row.raw={...(row.raw||{}),"Nr de Despacho":dados.numero,"Data de Despacho":dados.data,Status:"Aguardando Saída"};
+    row.raw={...(row.raw||{}),"Nr de Despacho":dados.numero,"Data de Despacho":dados.data,"Nome do Banco":dados.nome_banco,"Nr de Conta":dados.nr_conta,Status:"Aguardando Saída"};
     row.dataDespacho=dados.data;
     row.despacho_numero=dados.numero;
     row.estado="Aguardando Saída";
@@ -97,7 +98,7 @@ async function runWorkflow(op,dados,button){
   if(op==="despacho.registar"){
    const found=rows.some(x=>String(x.raw?.["Nr de Despacho"]??x.despacho_numero??"").trim()===String(dados.numero).trim());
    if(!found&&original){
-    const item={...original,raw:{...(original.raw||{}),"Nr de Despacho":dados.numero,"Data de Despacho":dados.data,Status:"Aguardando Saída"},dataDespacho:dados.data,despacho_numero:dados.numero,estado:"Aguardando Saída",awaitingSync:true};
+    const item={...original,raw:{...(original.raw||{}),"Nr de Despacho":dados.numero,"Data de Despacho":dados.data,"Nome do Banco":dados.nome_banco,"Nr de Conta":dados.nr_conta,Status:"Aguardando Saída"},dataDespacho:dados.data,despacho_numero:dados.numero,estado:"Aguardando Saída",awaitingSync:true};
     rows.push(item);render();
    }
    if(synced&&!found)showNotice("Despacho confirmado. A consulta ainda está a sincronizar.", "warning");
