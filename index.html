@@ -14,7 +14,7 @@
   <div class="expense-step-header"><div><small>DESPACHO ESPONTÂNEO</small><h3>Preparar pagamento</h3></div><span class="expense-step-badge">Pendente → Aguardando Saída</span></div>
   <p class="note">Seleccione a conta que será utilizada. O valor é preenchido com o montante da despesa e o código segue a sequência dos despachos existentes.</p>
   <div class="form-grid">
-    <label>Conta a utilizar <select id="workflow-dispatch-account" required><option value="">Seleccione a conta</option></select></label>
+    <label>Banco<select id="workflow-dispatch-bank" required><option value="">Seleccione o banco</option></select></label><label>Designação da conta<select id="workflow-dispatch-account" required disabled><option value="">Seleccione primeiro o banco</option></select></label>
     <label>Valor a contabilizar (MT)<input id="workflow-dispatch-amount" type="number" readonly aria-readonly="true"></label>
     <label>Data do despacho<input id="workflow-dispatch-date" type="date" required></label>
     <label>N.º de despacho (automático)<input id="workflow-dispatch-number" readonly aria-readonly="true" placeholder="Gerado automaticamente"></label>
