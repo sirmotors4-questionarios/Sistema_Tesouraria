@@ -52,3 +52,22 @@
 .dispatch-progress[data-state="success"] .dispatch-progress-dot{background:#3a9655}
 .dispatch-progress[data-state="error"]{background:#fff0f1;border-color:#efb7bc;color:#9a2730}
 .dispatch-progress[data-state="error"] .dispatch-progress-dot{background:#bd2537}
+
+/* Mapa de navegação FAC/TES: agrupa módulos sem alterar o comportamento financeiro existente */
+.sidebar{max-height:100vh;position:sticky;top:0;overflow-y:auto;scrollbar-width:thin}
+.sidebar .brand{padding-bottom:22px}
+.nav-group-label{font-size:10px;letter-spacing:.12em;font-weight:800;color:#91a4b6;padding:18px 12px 6px;margin-top:4px}
+.sidebar .nav{padding:10px 11px;margin:2px 0;gap:9px}
+.sidebar .nav em{font-size:9px;white-space:nowrap;color:#d9e6f0}
+.module-status{border:1px solid #d6e0e9;border-radius:20px;padding:7px 12px;font-size:11px;white-space:nowrap;color:#53677b;background:#eef2f6;font-weight:700}
+.module-preview{padding:22px}
+.module-intro{display:flex;flex-direction:column;gap:5px;margin-bottom:18px}
+.module-intro strong{font-size:16px}
+.module-intro span{font-size:12px;color:#647487}
+.module-capabilities{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.module-capabilities article{border:1px solid #e0e6ed;border-radius:11px;background:#f9fbfc;padding:17px 15px;min-height:113px}
+.module-capabilities article span{font-size:11px;font-weight:800;color:#a32737}
+.module-capabilities article p{font-size:13px;color:#2b394a;margin:9px 0 0;line-height:1.45}
+.module-source{margin:20px 0 0;font-size:12px;border-top:1px solid #e0e6ed;padding-top:14px;color:#667587}
+.module-source strong{color:#405266}
+@media(max-width:950px){.module-capabilities{grid-template-columns:1fr}.module-capabilities article{min-height:0}.sidebar{position:static;max-height:none}}
