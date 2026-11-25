@@ -371,7 +371,10 @@
   }
   function executar() {
     const conta = contaSeleccionada(), tol = Math.max(0, Math.min(30, Number($("conc-tol").value) || 0));
-    const despesas = C.pagamentosParaConciliar(ctx().registos(), {idConta: conta.id, conta: conta.numero, banco: conta.banco, de: $("conc-de").value, ate: $("conc-ate").value, toleranciaDias: tol});
+    // Fonte dos pagamentos: tblPagamentos (cheque, data e conta de cada saída) quando a consulta a devolve; senão, os despachos
+    const filtro = {idConta: conta.id, conta: conta.numero, banco: conta.banco, de: $("conc-de").value, ate: $("conc-ate").value, toleranciaDias: tol};
+    const tblPag = T("tblPagamentos"), usaTabela = tblPag.length > 0;
+    const despesas = usaTabela ? C.pagamentosDaTabela(tblPag, ctx().registos(), filtro) : C.pagamentosParaConciliar(ctx().registos(), filtro);
     // Entradas do extracto ↔ recibos da base mãe (Recebimentos); os recibos já ligados a um crédito ficam de fora.
     const BD = window.TES_BASE_DADOS, BASE = window.TES_BASE;
     let recibos = [];
@@ -380,7 +383,8 @@
     const gravadas = conciliacoesBase(), movConc = new Set(gravadas.map((l) => String(l.ID_Movimento)));
     const docConc = new Set(gravadas.map((l) => String(l.Tipo_Documento) + "|" + String(l.ID_Documento)));
     estado.gravados = estado.movimentos.filter((m) => m.idBase && movConc.has(m.idBase)).map((m) => m.id);
-    const despesasLivres = despesas.filter((p) => !(p.idDocumento && docConc.has("despesa|" + p.idDocumento)));
+    // Já conciliado: o pagamento (pagamento|ID_Pagamento) ou, de gravações antigas, a despesa (despesa|ID_Despesa)
+    const despesasLivres = despesas.filter((p) => !(p.idDocumento && docConc.has(p.tipo + "|" + p.idDocumento)) && !(p.idDespesa && docConc.has("despesa|" + p.idDespesa)));
     const recibosLivres = recibos.filter((p) => !docConc.has("recibo|" + p.idRecibo));
     estado.docsJaConciliados = despesas.length - despesasLivres.length + recibos.length - recibosLivres.length;
     estado.pagamentos = [...despesasLivres, ...recibosLivres];
@@ -402,7 +406,7 @@
     };
     estado.desactualizado = false;
     $("conc-executar").textContent = "Conciliar";
-    $("conc-fonte-pag").textContent = despesasLivres.length + " saída(s) da Tesouraria e " + recibosLivres.length + " recibo(s) por ligar no período" + (conta.texto ? " · " + conta.texto : conta.numero ? " · conta " + conta.numero : " · todas as contas") + "." +
+    $("conc-fonte-pag").textContent = (usaTabela ? "Fonte: tblPagamentos. " : "Fonte: despachos (a consulta não devolveu tblPagamentos). ") + despesasLivres.length + " pagamento(s) da Tesouraria e " + recibosLivres.length + " recibo(s) por ligar no período" + (conta.texto ? " · " + conta.texto : conta.numero ? " · conta " + conta.numero : " · todas as contas") + "." +
       (estado.gravados.length || estado.docsJaConciliados ? " Já conciliados na base mãe: " + estado.gravados.length + " movimento(s), " + estado.docsJaConciliados + " documento(s)." : "");
     desenharResultado();
   }
@@ -547,7 +551,7 @@
       if (!m || !m.idBase || (consultaTemBase() || sessao.movimentos.length ? !naBase.has(m.idBase) : false)) { foraBase.push(p); continue; }
       if (ps.some((x) => !x || !(x.tipo === "recibo" ? x.idRecibo : x.idDocumento))) { semId.push(p); continue; }
       const metodo = p.motivos.includes("associação manual") ? "manual" : p.estado === "automatico" ? "automatico" : "confirmado";
-      for (const x of ps) ligacoes.push({ID_Movimento: m.idBase, Tipo_Documento: x.tipo === "recibo" ? "recibo" : "despesa", ID_Documento: x.tipo === "recibo" ? x.idRecibo : x.idDocumento,
+      for (const x of ps) ligacoes.push({ID_Movimento: m.idBase, Tipo_Documento: x.tipo === "recibo" ? "recibo" : x.tipo === "pagamento" ? "pagamento" : "despesa", ID_Documento: x.tipo === "recibo" ? x.idRecibo : x.idDocumento,
         Documento: String(x.requisicao || "").slice(0, 80), Valor: Math.round(x.valor * 100) / 100, Data_Banco: m.data, Valor_Banco: Math.round(m.valor * 100) / 100,
         Descritivo_Banco: String(m.descricao || "").slice(0, 250), Conta: conta.numero || "", Pontos: p.pontos, Motivos: p.motivos.join("; ").slice(0, 250), Metodo: metodo});
     }

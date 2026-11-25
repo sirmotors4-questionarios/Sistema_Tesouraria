@@ -72,6 +72,24 @@ Motivos, Estado Confirmado/Anulado, Utilizador, Data). O `hash` do ficheiro e a 
 mesmo extracto/movimento duas vezes. Uma despesa conciliada pode passar de *Aguardando Saída* a *Pago* com a data do banco.
 
 
+## Fonte dos pagamentos: tblPagamentos
+
+A conciliação usa a **tblPagamentos**, o registo de cada saída de dinheiro. Para cada pagamento usa:
+
+| Campo | Para quê |
+|---|---|
+| `Data_Pagamento` | data de saída |
+| `ID_Conta` | conta |
+| `Meio_Pagamento` | meio (cheque, transferência…) |
+| `Referencia_Transaccao` | **nº do cheque** |
+| `Valor_Pagamento` | valor |
+
+- O fornecedor, a requisição e o despacho vêm da despesa, pelo `ID_Despesa`.
+- **Uma despesa paga em vários cheques** tem uma linha por cheque, e cada uma é conciliada com o seu débito.
+- **De onde vem a tabela:** a `tblPagamentos` chega ao site pela consulta das despesas ou pelo `base.consultar` do TES_BASE_MAE, que a lê do mesmo livro sem a alterar.
+- **Sem a tabela:** o site usa os despachos, com «F. de Pagamento» e «Ref. Pagamento». O ecrã indica qual das fontes foi usada.
+- **Gravação:** as conciliações ficam gravadas como `pagamento|ID_Pagamento`. As gravações antigas, com `despesa|ID_Despesa`, continuam a contar como já conciliadas.
+
 ## Data que conta: Data de Saída
 
 A conciliação usa **só a Data de Saída** do despacho (quando o dinheiro sai do banco), em todos os passos:
