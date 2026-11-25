@@ -12,7 +12,7 @@
   const mt = (n) => (n === "" || n == null || !Number.isFinite(Number(n)) ? "" : C.formatar(n));
   const dataPt = (v) => { const iso = C.data(v); return iso ? iso.slice(8, 10) + "/" + iso.slice(5, 7) + "/" + iso.slice(0, 4) : "—"; };
   const ctx = () => window.TES_CONTEXTO || {ligado: () => false, tabela: () => [], empresas: () => [], escritaDisponivel: () => false};
-  const LOTE = 300;
+  const LOTE = 1000; // menos execuções do Office Script (cada uma tem um custo fixo de arranque)
   const TIPO = {
     faturas: {tabela: "tbl_Faturas", chave: "ID_Documento", nome: "facturas e notas de crédito", ficheiro: "Listagem de documentos de venda (FA, FR, VD, NC, ND)"},
     recibos: {tabela: "tbl_Recibos", chave: "ID_Recibo", nome: "recibos", ficheiro: "Listagem de recibos, com o documento liquidado em cada linha"},

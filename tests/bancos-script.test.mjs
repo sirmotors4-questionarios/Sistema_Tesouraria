@@ -152,3 +152,27 @@ test("base.consultar: devolve as tabelas (vazias antes da primeira gravação) s
   assert.equal(m.colunas[0], "ID_Movimento");
   assert.equal(chamar(w, {operacao: "base.consultar", tabelas: ["xpto"]}).codigo, "PEDIDO_INVALIDO");
 });
+
+test("rapidez: vários lotes sem linhas vazias nem duplicados, poucas leituras, contas em formato texto", () => {
+  const w = livro();
+  const muitos = Array.from({length: 2400}, (_, i) => ({data: "2026-0" + (1 + (i % 9)) + "-" + String(10 + (i % 18)), descricao: "m" + i, referencia: String(i), valor: -(i + 1), saldo: null}));
+  const p = pedidoExtrato(muitos, HASH_A, {final: false});
+  const lotes = [p.movimentos.slice(0, 1000), p.movimentos.slice(1000, 2000), p.movimentos.slice(2000)];
+  lotes.forEach((l, i) => {
+    const antes = w.cont.leituras;
+    const r = chamar(w, {...p, final: i === 2, movimentos: l});
+    assert.equal(r.sucesso, true, r.mensagem);
+    assert.ok(w.cont.leituras - antes <= 8, "leituras por lote: " + (w.cont.leituras - antes));
+  });
+  const m = w.ler("tbl_MovimentosBancarios");
+  assert.equal(m.length, 2400);
+  assert.equal(new Set(m.map((x) => x.ID_Movimento)).size, 2400);
+  assert.equal(w.getTable("tbl_MovimentosBancarios").rows.length, 2400, "sem linhas vazias no corpo");
+  const f = w.getWorksheet("BM_Movimentos"), jConta = w.getTable("tbl_MovimentosBancarios").headers.indexOf("Conta");
+  assert.ok([1, 1200, 2400].every((r) => f.formatos[r + ":" + jConta] === "@"), "Conta em formato texto");
+  const e = w.ler("tbl_Extratos")[0];
+  assert.equal(e.Estado, "Completo"); assert.equal(e.Novos, 2400);
+  // Repetir o 2.º lote (como depois de um tempo esgotado) não duplica
+  assert.equal(chamar(w, {...p, final: false, movimentos: lotes[1], extrato: {...p.extrato, ID_Extrato: HASH_B}}).novos, 0);
+  assert.equal(w.ler("tbl_MovimentosBancarios").length, 2400);
+});
