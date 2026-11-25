@@ -109,3 +109,26 @@ test("mesmo cheque e valor em dois despachos: sugestão com aviso de possível d
   assert.equal(r.pares[0].estado, "sugerido");
   assert.ok(r.pares[0].motivos.some((t) => /possível despacho duplicado: o cheque 45564407 aparece em 2 despachos/.test(t)));
 });
+
+test("a data que conta é a Data de Saída, não a do despacho", () => {
+  // Despacho a 01/04, saída a 20/04; débito a 20/04 → par pela saída (mesma data)
+  const reg = {id: "d1", idDocumento: "d1", estado: "Pago", valor: 12000, dataSaida: "2026-04-20", dataDespacho: "2026-04-01", referencia: "", meio: "Transferência", fornecedor: "X"};
+  const r = conciliar([mov("m1", "2026-04-20", -12000, "Transferencia MTR")], [reg]);
+  assert.equal(r.pares.length, 1);
+  assert.ok(r.pares[0].motivos.includes("mesma data"));
+  // Débito na data do despacho (01/04), longe da saída: não é par
+  assert.equal(conciliar([mov("m1", "2026-04-01", -12000, "Transferencia MTR")], [reg]).pares.length, 0);
+});
+
+test("despacho sem Data de Saída: só pelo nº do cheque, e como sugestão", () => {
+  const semSaida = (cheque, meio = "Cheque") => ({id: "d1", idDocumento: "d1", estado: "Aguardando Saída", valor: 9000, dataSaida: "", dataDespacho: "2026-05-02", referencia: cheque, meio, fornecedor: "Y"});
+  // Sem cheque: fica de fora (não se usa a data do despacho)
+  assert.equal(C.pagamentosParaConciliar([semSaida("", "Transferência")], {}).length, 0);
+  // Com o mesmo nº de cheque: sugestão com aviso para registar a saída
+  const r = conciliar([mov("m1", "2026-05-05", -9000, "Chq.Caixa 45564600", "45564600")], [semSaida("45564600")]);
+  assert.equal(r.pares.length, 1);
+  assert.equal(r.pares[0].estado, "sugerido");
+  assert.ok(r.pares[0].motivos.some((t) => /sem Data de Saída/.test(t)));
+  // Com outro cheque: não é par
+  assert.equal(conciliar([mov("m1", "2026-05-05", -9000, "Chq.Caixa 45564601", "45564601")], [semSaida("45564600")]).pares.length, 0);
+});

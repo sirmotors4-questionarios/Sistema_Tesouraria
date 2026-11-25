@@ -518,7 +518,8 @@
   }
 
   // ---------- Emparelhamento com a Tesouraria ----------
-  // pagamentos: [{id, valor (positivo), data (saída efectiva), dataPrevista, referencia, despacho, requisicao, fornecedor, conta, banco}]
+  // pagamentos: [{id, valor (positivo), data (Data de Saída), dataPrevista (Data de Despacho, só informativa), referencia, …}]
+  // A data que conta é SEMPRE a Data de Saída (quando o dinheiro sai do banco), nunca a do despacho.
   // Regras: valor igual ao cêntimo é obrigatório; a data e as referências dão pontos.
   const PALAVRAS_VAZIAS = new Set(["de", "da", "do", "das", "dos", "e", "a", "o", "para", "lda", "sa", "limitada", "sarl", "mz", "trf", "transf", "pagamento", "pag"]);
   const fichas = (v) => chaveTexto(v).split(/[^a-z0-9]+/).filter((t) => t.length >= 3 && !PALAVRAS_VAZIAS.has(t));
@@ -570,14 +571,17 @@
 
   function pontuar(mov, pag, tolerancia) {
     if (centimos(Math.abs(mov.valor)) !== centimos(Math.abs(pag.valor))) return null;
-    const ref = pag.data || pag.dataPrevista;
+    const ref = pag.data; // Data de Saída
     const dias = ref ? Math.abs(diasEntre(mov.data, ref)) : null;
     const ch = relacaoCheque(mov, pag);
+    // Sem Data de Saída só se aceita com o nº do cheque igual (e nunca automático)
+    if (!ref && ch.tipo !== "igual" && ch.tipo !== "abreviado") return null;
     // Cheque com o mesmo nº: pode ser apresentado semanas depois da saída (nunca muito antes)
     const depois = ref ? diasEntre(mov.data, ref) : null; // dias do débito depois da saída
     const janelaCheque = (ch.tipo === "igual" || ch.tipo === "abreviado") && depois != null && depois >= -3 && depois <= TOLERANCIA_CHEQUE;
     if (dias != null && dias > tolerancia && !janelaCheque) return null;
     let pontos = 50, motivos = ["valor igual"];
+    if (!ref) { pontos -= 30; motivos.push("despacho sem Data de Saída: confirmar e registar a saída"); }
     if (ch.tipo === "igual") { pontos += 40; motivos.push("nº do cheque " + pag.cheque + " igual"); }
     else if (ch.tipo === "abreviado") { pontos += 30; motivos.push("nº do cheque abreviado no despacho (" + pag.cheque + " = " + ch.banco + "; registar o nº completo)"); }
     else if (ch.tipo === "parecido") { pontos -= 10; motivos.push("nº do cheque parecido: despacho " + pag.cheque + ", banco " + ch.banco + " (verificar digitação)"); }
@@ -615,11 +619,14 @@
         const ps = [...porCheque.entries()].filter(([k]) => k === c || abreviado(k, c)).flatMap(([, v]) => v).filter((p) => !usadosP.has(p.id));
         if (ps.length < 2 || usadosM.has(m.id)) continue;
         if (ps.reduce((s, p) => s + centimos(p.valor), 0) !== centimos(Math.abs(m.valor))) continue;
-        const ref = ps.map((p) => p.data || p.dataPrevista).filter(Boolean).sort()[0];
+        const ref = ps.map((p) => p.data).filter(Boolean).sort()[0]; // Data de Saída
         const depois = ref ? diasEntre(m.data, ref) : 0;
         if (depois < -3 || depois > TOLERANCIA_CHEQUE) continue;
+        const semSaida = ps.filter((p) => !p.data).length;
         ps.forEach((p) => usadosP.add(p.id)); usadosM.add(m.id);
-        resultado.push({mov: m.id, pags: ps.map((p) => p.id), pontos: 95, motivos: ["cheque nº " + c + " paga " + ps.length + " despesas", "soma igual ao débito"], dias: Math.abs(depois), tipo: "N:1", estado: "automatico", ambiguo: false});
+        resultado.push({mov: m.id, pags: ps.map((p) => p.id), pontos: semSaida ? 70 : 95,
+          motivos: ["cheque nº " + c + " paga " + ps.length + " despesas", "soma igual ao débito", ...(semSaida ? [semSaida + " despacho(s) sem Data de Saída: confirmar e registar a saída"] : [])],
+          dias: ref ? Math.abs(depois) : null, tipo: "N:1", estado: semSaida ? "sugerido" : "automatico", ambiguo: false});
       }
     }
     const pares = [];
@@ -651,7 +658,7 @@
     for (const m of debitos) {
       if (usadosM.has(m.id)) continue;
       const alvo = centimos(Math.abs(m.valor));
-      const cand = pagLivres.filter((p) => !usadosP.has(p.id) && centimos(p.valor) < alvo && (!(p.data || p.dataPrevista) || Math.abs(diasEntre(m.data, p.data || p.dataPrevista)) <= tolerancia)
+      const cand = pagLivres.filter((p) => !usadosP.has(p.id) && centimos(p.valor) < alvo && p.data && Math.abs(diasEntre(m.data, p.data)) <= tolerancia
         && relacaoCheque(m, p).tipo !== "diferente")
         .sort((a, b) => b.valor - a.valor).slice(0, 14);
       const grupo = somaExacta(cand, alvo, maxGrupo);
@@ -689,8 +696,10 @@
       if (estado !== "pago" && estado !== "aguardando saida") return false;
       const valor = Number(r.valor);
       if (!Number.isFinite(valor) || valor <= 0) return false;
-      const dt = r.dataSaida || r.dataDespacho || "";
-      if (ini && dt && dt < (eCheque(r.meio) && soDigitos(r.referencia) ? iniCheque : ini)) return false;
+      // Período pela Data de Saída. Sem saída registada só entra se tiver nº de cheque (pode casar pelo cheque).
+      const dt = r.dataSaida || "", comCheque = eCheque(r.meio) && soDigitos(r.referencia).length >= 3;
+      if (!dt && !comCheque) return false;
+      if (ini && dt && dt < (comCheque ? iniCheque : ini)) return false;
       if (fim && dt && dt > fim) return false;
       // Conta: pelo ID_Conta quando ambos o têm (despachos V9); senão pelo número (aceita número parcial no fim).
       if (idConta && r.idConta) return String(r.idConta).trim() === String(idConta).trim();
@@ -743,7 +752,7 @@
       linhas.push({"Data banco": "", "Descritivo banco": "", "Referência banco": "", "Débito": "", "Crédito": "", "Saldo": "",
         "Estado": "Pagamento sem movimento no extracto", "Tipo": "", "Pontuação": "", "Motivos": "",
         "Requisição": p.requisicao, "Nº Despacho": p.despacho, "Ref. Pagamento": p.referencia, "Fornecedor": p.fornecedor,
-        "Data de Saída": p.data || p.dataPrevista, "Valor Tesouraria": p.valor});
+        "Data de Saída": p.data || "", "Valor Tesouraria": p.valor});
     }
     return linhas;
   }

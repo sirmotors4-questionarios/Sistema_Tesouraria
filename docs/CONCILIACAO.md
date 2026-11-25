@@ -72,6 +72,17 @@ Motivos, Estado Confirmado/Anulado, Utilizador, Data). O `hash` do ficheiro e a 
 mesmo extracto/movimento duas vezes. Uma despesa conciliada pode passar de *Aguardando Saída* a *Pago* com a data do banco.
 
 
+## Data que conta: Data de Saída
+
+A conciliação usa **só a Data de Saída** do despacho (quando o dinheiro sai do banco), em todos os passos:
+- na pontuação;
+- no filtro de período;
+- nas somas de vários pagamentos.
+
+A Data de Despacho serve só para consulta.
+
+Um despacho **sem Data de Saída** (por exemplo, «Aguardando Saída») só entra se o **nº do cheque** coincidir com o do banco. Nesse caso fica sempre como **sugestão**, com a nota «despacho sem Data de Saída: confirmar e registar a saída».
+
 ## Cheques (nº do cheque dos despachos)
 
 Nos despachos (tabela `Lançamentos`), o meio de pagamento fica em **«F. de Pagamento»** e o nº do cheque em **«Ref. Pagamento»**.
