@@ -291,6 +291,90 @@
     return movimentos.map((m, i) => ({...m, id: "m" + (i + 1), chave: m.data + "|" + centimos(m.valor) + "|" + chaveTexto(m.descricao).slice(0, 40)}));
   }
 
+  // ---------- Base mãe: identidade dos movimentos e organização dos extractos ----------
+  // O mesmo movimento tem de ter a mesma chave venha de CSV, Excel ou PDF, e em extractos de períodos sobrepostos.
+  // Por isso a chave NÃO usa descritivo, referência nem saldo (mudam entre formatos ou vêm cortados no export):
+  //   BANCO|CONTA|AAAA-MM-DD|cêntimos|ocorrência
+  // «ocorrência» numera, pela ordem do ficheiro, os movimentos iguais no mesmo dia (ex.: duas comissões de 167,99).
+  // Extractos cortam o período por dias inteiros, por isso a numeração coincide entre ficheiros.
+  const bancoCurto = (b) => chaveTexto(b).toUpperCase().replace(/[^A-Z0-9 ]/g, " ").trim().split(/\s+/)[0] || "BANCO";
+  const contaCurta = (c) => texto(c).replace(/\D/g, "").replace(/^0+/, "");
+  function idsMovimentos(movimentos, {banco = "", conta = ""} = {}) {
+    const b = bancoCurto(banco), c = contaCurta(conta);
+    if (!c) throw Error("Indique a conta bancária do extracto antes de gravar (o nº da conta faz parte da identidade dos movimentos).");
+    const contagem = new Map();
+    return movimentos.map((m) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(m.data || "")) throw Error("Movimento sem data válida: «" + texto(m.descricao).slice(0, 40) + "».");
+      if (!Number.isFinite(Number(m.valor)) || centimos(m.valor) === 0) throw Error("Movimento sem valor em " + m.data + ".");
+      const base = b + "|" + c + "|" + m.data + "|" + centimos(m.valor);
+      const n = (contagem.get(base) || 0) + 1;
+      contagem.set(base, n);
+      return base + "|" + n;
+    });
+  }
+  // BANCO_CONTA_AAAA-MM-DD_AAAA-MM-DD.ext — nome único e ordenável por conta e período.
+  function nomePadronizado({banco = "", conta = "", de = "", ate = "", extensao = ""} = {}) {
+    const ext = texto(extensao).replace(/^\./, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const partes = [bancoCurto(banco), texto(conta).replace(/\D/g, "") || "SEM-CONTA", de || "inicio", ate || "fim"];
+    return partes.join("_") + (ext ? "." + ext : "");
+  }
+  // Nº de conta (e banco/NIB, se houver) indicado no próprio ficheiro: cabeçalho do BCI («Conta;2308710007»),
+  // coluna «Conta» do formato normalizado ou texto do PDF («Conta nº 0009102002651»).
+  function contaDoFicheiro(matriz, textos) {
+    const r = {conta: "", banco: "", nib: ""};
+    const linhas = Array.isArray(matriz) ? matriz.slice(0, 40) : [];
+    for (let i = 0; i < linhas.length && !(r.conta && r.nib); i++) {
+      const l = linhas[i] || [];
+      const k = l.map((x) => chaveTexto(x).replace(/[^a-z ]/g, "").trim());
+      const j = r.conta ? -1 : k.indexOf("conta");
+      if (j >= 0 && l.slice(j + 1).some((x) => /\d{6,}/.test(texto(x).replace(/[\s.\-]/g, "")))) {
+        r.conta = texto(l.slice(j + 1).find((x) => /\d{6,}/.test(texto(x).replace(/[\s.\-]/g, "")))).replace(/[\s.\-]/g, "");
+      } else if (j >= 0 && linhas[i + 1]) {
+        const v = texto(linhas[i + 1][j]).replace(/[\s.\-]/g, "");
+        if (/^\d{6,}$/.test(v)) {
+          r.conta = v;
+          const jb = k.indexOf("banco"), jn = k.indexOf("nib");
+          if (jb >= 0) r.banco = texto(linhas[i + 1][jb]);
+          if (jn >= 0) r.nib = texto(linhas[i + 1][jn]).replace(/\D/g, "");
+        }
+      }
+      const jn = k.indexOf("nib");
+      if (!r.nib && jn >= 0) { const v = l.slice(jn + 1).map((x) => texto(x).replace(/\D/g, "")).find((x) => x.length >= 15); if (v) r.nib = v; }
+    }
+    if (!r.conta && Array.isArray(textos)) {
+      for (const t of textos.slice(0, 80)) {
+        const m = texto(t).match(/\b(?:conta|account)\b\s*(?:n[.º°o]*|number|no\.?)?\s*[:\-]?\s*(\d[\d .\-]{5,}\d)/i);
+        if (m) { r.conta = m[1].replace(/[\s.\-]/g, ""); break; }
+      }
+    }
+    return r;
+  }
+  const mesmaConta = (a, b) => { const x = contaCurta(a), y = contaCurta(b); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
+  // Linhas para tbl_MovimentosBancarios (colunas da base mãe).
+  function movimentosParaBase(movimentos, ids, {idConta = "", banco = "", conta = "", idExtrato = "", dataImportacao = ""} = {}) {
+    return movimentos.map((m, i) => ({
+      ID_Movimento: ids[i], ID_Conta: idConta, Banco: banco, Conta: texto(conta).replace(/\D/g, ""),
+      Data_Movimento: m.data, Data_Valor: m.dataValor || "", Referencia: texto(m.referencia).slice(0, 80), Descricao: texto(m.descricao).slice(0, 250),
+      Debito: m.valor < 0 ? Math.round(-m.valor * 100) / 100 : 0, Credito: m.valor > 0 ? Math.round(m.valor * 100) / 100 : 0,
+      Valor: Math.round(m.valor * 100) / 100, Saldo: m.saldo == null || !Number.isFinite(m.saldo) ? "" : Math.round(m.saldo * 100) / 100,
+      ID_Extrato: idExtrato, Data_Importacao: dataImportacao,
+    }));
+  }
+  // Movimentos da base mãe (linhas do Excel) → formato do motor, para conciliar sem voltar a ler o ficheiro.
+  function movimentosDaBase(linhas, {conta = "", de = "", ate = "", excluir = new Set()} = {}) {
+    const iso = (v) => {
+      if (typeof v === "number" && v > 1000) return new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000).toISOString().slice(0, 10);
+      const t = texto(v), m = t.match(/^(\d{4})-(\d{2})-(\d{2})/) || t.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+      return !m ? "" : m[1].length === 4 ? m[1] + "-" + m[2] + "-" + m[3] : m[3] + "-" + m[2] + "-" + m[1];
+    };
+    return (linhas || []).map((l) => ({
+      id: texto(l.ID_Movimento), idBase: texto(l.ID_Movimento), data: iso(l.Data_Movimento), dataValor: iso(l.Data_Valor),
+      descricao: texto(l.Descricao), referencia: texto(l.Referencia), valor: numero(l.Valor), saldo: l.Saldo === "" || l.Saldo == null ? null : numero(l.Saldo),
+      conta: texto(l.Conta), origem: "base",
+    })).filter((m) => m.id && m.data && Number.isFinite(m.valor) && !excluir.has(m.id) && (!conta || mesmaConta(m.conta, conta)) && (!de || m.data >= de) && (!ate || m.data <= ate))
+      .sort((a, b) => a.data.localeCompare(b.data));
+  }
+
   // ---------- Validação ----------
   // Confere: saldo anterior + movimento = saldo de cada linha; saldo inicial + soma = saldo final; duplicados.
   function validar(movimentos, {saldoInicial = null, saldoFinal = null} = {}) {
@@ -429,7 +513,7 @@
       if (kConta && rc && rc !== kConta && !rc.endsWith(kConta) && !kConta.endsWith(rc)) return false;
       if (!kConta && kBanco && rb && rb !== kBanco) return false;
       return true;
-    }).map((r) => ({id: String(r.id), valor: Number(r.valor), data: r.dataSaida || "", dataPrevista: r.dataDespacho || "",
+    }).map((r) => ({id: String(r.id), idDocumento: String(r.idDocumento || ""), tipo: "despesa", valor: Number(r.valor), data: r.dataSaida || "", dataPrevista: r.dataDespacho || "",
       referencia: r.referencia || "", despacho: r.despacho || "", requisicao: r.requisicao || "", fornecedor: r.fornecedor || "",
       estado: r.estado, conta: r.conta || "", banco: r.banco || "", empresa: r.empresa || ""}));
   }
@@ -494,5 +578,6 @@
   }
 
   return Object.freeze({numero, data, campoDoCabecalho, detectarCabecalho, matrizParaMovimentos, linhasPdfParaMatriz,
-    textoParaMovimentos, validar, pontuar, conciliar, pagamentosParaConciliar, resumo, relatorio, csv, formatar, CAMPOS});
+    textoParaMovimentos, validar, pontuar, conciliar, pagamentosParaConciliar, resumo, relatorio, csv, formatar, CAMPOS,
+    idsMovimentos, nomePadronizado, contaDoFicheiro, mesmaConta, movimentosParaBase, movimentosDaBase});
 });

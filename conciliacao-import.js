@@ -149,10 +149,19 @@
 
   // ---------- Entrada única ----------
   // Devolve {metodo, nome, matriz (para mapear colunas, quando existe), resultado:{movimentos, saldoInicial, saldoFinal, avisos, mapa}}
-  async function lerFicheiro(ficheiro, {aoProgresso, forcarOcr = false} = {}) {
+  // Acrescenta: hash (SHA-256 do ficheiro: o mesmo ficheiro nunca é importado duas vezes), extensao e a conta
+  // indicada no próprio ficheiro (para confirmar que o extracto é da conta seleccionada).
+  async function lerFicheiro(ficheiro, opcoes = {}) {
     if (!C) throw Error("Motor de conciliação não carregado.");
     if (ficheiro.size > 25 * 1024 * 1024) throw Error("Ficheiro demasiado grande (máximo 25 MB).");
-    const ext = extensao(ficheiro.name), buffer = await ficheiro.arrayBuffer();
+    const buffer = await ficheiro.arrayBuffer();
+    let hash = "";
+    try { hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buffer))].map((b) => b.toString(16).padStart(2, "0")).join(""); } catch {}
+    const r = await lerConteudo(ficheiro, buffer, opcoes);
+    return {...r, hash, extensao: extensao(ficheiro.name), tamanho: ficheiro.size, contaFicheiro: C.contaDoFicheiro(r.matriz, r.textos)};
+  }
+  async function lerConteudo(ficheiro, buffer, {aoProgresso, forcarOcr = false} = {}) {
+    const ext = extensao(ficheiro.name);
     if (ext === "csv" || ext === "txt") {
       aoProgresso?.("A ler o CSV…");
       const matriz = lerCsv(decodificar(buffer));
@@ -171,19 +180,19 @@
       if (!forcarOcr && caracteres / doc.numPages > 80) {
         const ano = anoProvavel(linhas.flatMap((l) => l.itens.map((i) => i.str)));
         const r = interpretarLinhas(linhas, ano);
-        if (r.resultado.movimentos.length) return {metodo: "PDF (texto)", nome: ficheiro.name, matriz: r.matriz, resultado: r.resultado, paginas: doc.numPages};
+        if (r.resultado.movimentos.length) return {metodo: "PDF (texto)", nome: ficheiro.name, matriz: r.matriz, textos: r.textos, resultado: r.resultado, paginas: doc.numPages};
       }
       const imagens = await paginasParaImagens(doc, aoProgresso);
       const linhasOcr = await ocr(imagens, aoProgresso);
       const r = interpretarLinhas(linhasOcr, anoProvavel(linhasOcr.flatMap((l) => l.itens.map((i) => i.str))));
       r.resultado.avisos = ["Lido por OCR: confirme datas, valores e sinais antes de conciliar.", ...(r.resultado.avisos || [])];
-      return {metodo: "OCR (PDF digitalizado)", nome: ficheiro.name, matriz: r.matriz, resultado: r.resultado, paginas: doc.numPages};
+      return {metodo: "OCR (PDF digitalizado)", nome: ficheiro.name, matriz: r.matriz, textos: r.textos, resultado: r.resultado, paginas: doc.numPages};
     }
     if (["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"].includes(ext)) {
       const linhasOcr = await ocr([ficheiro], aoProgresso);
       const r = interpretarLinhas(linhasOcr, anoProvavel(linhasOcr.flatMap((l) => l.itens.map((i) => i.str))));
       r.resultado.avisos = ["Lido por OCR: confirme datas, valores e sinais antes de conciliar.", ...(r.resultado.avisos || [])];
-      return {metodo: "OCR (imagem)", nome: ficheiro.name, matriz: r.matriz, resultado: r.resultado};
+      return {metodo: "OCR (imagem)", nome: ficheiro.name, matriz: r.matriz, textos: r.textos, resultado: r.resultado};
     }
     throw Error("Formato não suportado: ." + (ext || "?") + ". Use Excel, CSV, PDF ou imagem.");
   }
