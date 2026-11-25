@@ -105,7 +105,8 @@ test("reconciliação interna: saldos, estados, créditos, excepções e antigui
   assert.equal(doc("FA 2026/104"), undefined); // anulada fora
   const tipos = r.excepcoes.map((e) => e.tipo);
   assert.ok(tipos.includes("Liquidação de documento inexistente na base"));
-  assert.ok(tipos.some((t) => /Recibo sem documento liquidado/.test(t)));
+  // Cliente sem nenhuma factura: recibo de documentos anteriores ao período (ou adiantamento)
+  assert.ok(tipos.some((t) => /anteriores ao período importado \(ou adiantamento\)/.test(t)));
   const omega = r.clientes.find((c) => c.Codigo_Cliente === "C002");
   assert.equal(omega.emAberto, 60000); assert.equal(omega.creditos, 20000); assert.equal(omega.saldoLiquido, 40000); assert.equal(omega.d60, 60000);
   const beta = r.clientes.find((c) => c.Codigo_Cliente === "C001");

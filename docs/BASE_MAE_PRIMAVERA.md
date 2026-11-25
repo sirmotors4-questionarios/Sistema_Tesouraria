@@ -22,6 +22,23 @@ Base mãe ──► Facturação (saldo de cada documento) ──► Cobranças 
 - Linhas de título, totais e subtotais são ignoradas. A folha com mais documentos válidos é escolhida automaticamente.
 - Chaves: `EMPRESA|TIPO|SÉRIE|NÚMERO` (ex. `SIR MOTORS|FA|2026|101`). FR, VD e FS contam como pagas no acto; NC reduz o saldo do cliente.
 
+### 1.1 Relatórios PRIMAVERA reais (formatos reconhecidos sem configuração)
+- **«Documentos Emitidos de Vendas»** (relatório Crystal exportado para Excel): empresa na 1.ª linha (com «Pág.»),
+  cabeçalho `Entidade | Nome | Documento | Data | Total Merc. | Total IVA | Total Desc. | Total Outros | Impostos | Total Doc.`.
+  Todos os valores são importados (mercadoria, IVA, desconto, outros, impostos e total). As linhas «Total <Tipo>» e
+  «Total Geral» são usadas como **totais de controlo**: o ecrã mostra, por tipo, o total do relatório, a soma importada e
+  se conferem. Rodapés (©, Pág.) são ignorados.
+- **«Recebimentos»**: `Documento` (só o tipo) + `Série` + `Número` são combinados; importa também Valor Desconto, Filial,
+  Moeda, Estorno e Motivo, e as colunas «Tipo/Série/Número Doc. Original» quando vêm preenchidas (liquidações explícitas).
+- **Empresa**: detectada pelo cabeçalho do relatório; se faltar, pelo nome do ficheiro (ex. `Recebimentos_Metrobus.xlsx`);
+  se faltar, pelos clientes já existentes na base (≥ 40 % dos clientes de uma só empresa). O campo é preenchido e pode ser
+  alterado. Sem empresa identificável, o ecrã pede-a antes de gravar.
+- **Tipos**: FA, FT, FS, FR, VD, VDS (venda a dinheiro SchoolBus), ND, NC, DV (devolução a dinheiro); recibos RE, VDR
+  (recibo de VD/VDS) e NPC (pagamento a cliente que liquida DV/NC — saída, não vai ao banco como entrada). Tipos
+  desconhecidos são importados com aviso e o sinal é tirado do valor.
+- Códigos de cliente com «O» em vez de «0» (ex. `CLO0101`) são corrigidos com aviso; recibos de valor 0 e documentos
+  estornados entram na base (estado «Estornado») mas não contam para saldos.
+
 ## 2. Validação de cada importação (antes de gravar)
 - **Rejeitados** (com a linha do Excel e o motivo): documento não reconhecido, data ou total inválidos, cliente em falta,
   documento repetido no ficheiro, recibo no ficheiro de facturas e vice-versa.
@@ -32,7 +49,11 @@ Base mãe ──► Facturação (saldo de cada documento) ──► Cobranças 
 
 ## 3. Reconciliação interna
 - **Facturas ↔ recibos**: liquidado e saldo de cada documento; estados Em aberto, Vencido, Parcial, Parcial vencido, Liquidado, Crédito.
-- **Excepções**: liquidação de documento que não existe na base; recibo sem documento liquidado (adiantamento/por alocar);
+- **Liquidações inferidas** (quando o PRIMAVERA não exporta a ligação recibo → documento), sempre marcadas «(inferida)»
+  com a regra usada: VDR → VD/VDS e NPC → DV/NC do mesmo cliente e valor até 31 dias; documento único com saldo igual ao
+  recibo; vários iguais → o mais antigo (marcado «rever»); pago sem IVA; combinação única de até 4 documentos.
+- **Excepções**: recibos por alocar classificados (anteriores ao período importado/adiantamento, pagamento parcial com
+  candidatos, por alocar); NPC sem DV; devolvido acima do documento; liquidação de documento que não existe na base; recibo sem documento liquidado (adiantamento/por alocar);
   soma das liquidações diferente do recibo; liquidado acima do total.
 - **Cobranças**: por cliente, em aberto por antiguidade (não vencido, 1–30, 31–60, 61–90, > 90 dias) à data de referência,
   créditos por regularizar (NC e recibos por alocar), saldo líquido, maior atraso e último recibo.
@@ -40,11 +61,11 @@ Base mãe ──► Facturação (saldo de cada documento) ──► Cobranças 
   exacto, data e referência/cliente; recibos em numerário ficam de fora. As ligações confirmadas gravam-se em
   `tbl_RecebimentosBanco` e o recibo passa a «ligado».
 
-## 4. Tabelas da base mãe (criadas pelo script na primeira gravação, em folhas `BM_*`)
+## 4. Tabelas da base mãe (criadas pelo script na primeira gravação, em folhas `BM_*`; colunas novas são acrescentadas automaticamente a tabelas existentes)
 | Tabela | Colunas |
 |---|---|
-| `tbl_Faturas` | ID_Documento, Empresa, Tipo_Documento, Serie, Numero, Documento, Data, Data_Vencimento, Codigo_Cliente, Cliente, NUIT, Moeda, Total, Estado, Hash, ID_Importacao, Data_Importacao |
-| `tbl_Recibos` | ID_Recibo, Empresa, Tipo_Documento, Serie, Numero, Documento, Data, Codigo_Cliente, Cliente, Valor, Modo_Pagamento, Referencia, Conta_Bancaria, Estado, Liquidacoes, Hash, ID_Importacao, Data_Importacao |
+| `tbl_Faturas` | ID_Documento, Empresa, Tipo_Documento, Serie, Numero, Documento, Data, Data_Vencimento, Codigo_Cliente, Cliente, NUIT, Moeda, Total, Total_Mercadoria, Total_IVA, Total_Desconto, Total_Outros, Impostos, Sinal, Tipo_Nome, Estado, Hash, ID_Importacao, Data_Importacao |
+| `tbl_Recibos` | ID_Recibo, Empresa, Tipo_Documento, Serie, Numero, Documento, Data, Codigo_Cliente, Cliente, Valor, Modo_Pagamento, Referencia, Conta_Bancaria, Valor_Desconto, Filial, Moeda, Motivo, Estorno, Tipo_Nome, Estado, Liquidacoes, Hash, ID_Importacao, Data_Importacao |
 | `tbl_Liquidacoes` | ID_Liquidacao, ID_Recibo, ID_Documento, Documento_Liquidado, Valor, ID_Importacao |
 | `tbl_Importacoes` | ID_Importacao, Tipo, Empresa, Ficheiro, Hash_Ficheiro, Utilizador, Data, Linhas_Ficheiro, Novos, Alterados, Iguais, Rejeitados, Id_Pedido |
 | `tbl_RecebimentosBanco` | ID_Ligacao, ID_Recibo, Data_Banco, Valor, Descritivo_Banco, Conta, Utilizador, Data |

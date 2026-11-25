@@ -32,6 +32,7 @@ export function livro() {
         deleteRowsAt: (i, n = 1) => { cont.escritas++; t.rows.splice(i, n); if (!t.rows.length) t.rows.push(t.headers.map(() => "")); },
         getRange: () => intervalo(f, 0, 0, t.rows.length + 1, t.headers.length),
         getWorksheet: () => f,
+        addColumn: (i, vals, nome) => { cont.escritas++; t.headers.push(nome); t.rows.forEach((l) => l.push("")); f.cab = t.headers; },
         // resize(intervalo cabeçalho+corpo): o corpo passa a ter nr-1 linhas (as células já escritas abaixo entram na tabela)
         resize: (rg) => { cont.escritas++; const nr = rg.nr - 1; while (t.rows.length < nr) t.rows.push(t.headers.map(() => "")); t.rows.length = nr; t.rows.forEach((l, k) => { if (f.abaixo[k]) { f.abaixo[k].forEach((v, j) => { if (v !== undefined) l[j] = v; }); } }); f.abaixo = []; },
         setName: (n) => tabelas.set(n, t),

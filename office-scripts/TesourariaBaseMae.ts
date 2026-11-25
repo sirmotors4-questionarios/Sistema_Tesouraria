@@ -14,12 +14,13 @@
  *                       mesmo ficheiro, de outro formato (CSV/Excel/PDF) ou de um extracto de período sobreposto.
  *                       O ficheiro é registado em tbl_Extratos pelo SHA-256 (ID_Extrato): um ficheiro já importado por
  *                       completo é recusado. Extractos grandes chegam em lotes; o último traz final=true.
- *  banco.conciliar    — grava ligações movimento ↔ despesa/recibo em tbl_ConciliacaoBancaria. Um documento só pode estar
+ *  banco.conciliar    — grava ligações movimento ↔ pagamento (tblPagamentos)/despesa/recibo em tbl_ConciliacaoBancaria. Um documento só pode estar
  *                       ligado a um movimento e um movimento só a um conjunto de documentos (cuja soma = valor do banco).
  *                       Repetir o mesmo pedido não duplica. Os recibos também ficam em tbl_RecebimentosBanco.
  *  banco.desfazer     — remove a conciliação dos movimentos indicados (para corrigir uma ligação errada).
- *  base.consultar     — devolve as tabelas da base mãe (colunas + linhas em matriz, compacto) para o site. Tabelas
- *                       ainda não criadas vêm vazias. Só leitura: não cria nem altera nada.
+ *  base.consultar     — devolve as tabelas da base mãe (colunas + linhas em matriz, compacto) para o site, e também a
+ *                       tblPagamentos do livro (nº do cheque de cada pagamento). Tabelas ainda não criadas vêm vazias.
+ *                       Só leitura: não cria nem altera nada.
  *
  * Cria as tabelas na primeira utilização (folhas BM_*). Valida tudo antes de escrever; não apaga facturas nem recibos.
  * Exclusão mútua: o Power Automate não permite limitar a simultaneidade de um fluxo com resposta HTTP síncrona, por isso
@@ -44,8 +45,10 @@ type Valor = string | number | boolean;
 type Registo = Record<string, unknown>;
 
 const TABELAS: Record<string, { folha: string; chave: string; colunas: string[] }> = {
-  tbl_Faturas: { folha: "BM_Faturas", chave: "ID_Documento", colunas: ["ID_Documento", "Empresa", "Tipo_Documento", "Serie", "Numero", "Documento", "Data", "Data_Vencimento", "Codigo_Cliente", "Cliente", "NUIT", "Moeda", "Total", "Estado", "Hash", "ID_Importacao", "Data_Importacao"] },
-  tbl_Recibos: { folha: "BM_Recibos", chave: "ID_Recibo", colunas: ["ID_Recibo", "Empresa", "Tipo_Documento", "Serie", "Numero", "Documento", "Data", "Codigo_Cliente", "Cliente", "Valor", "Modo_Pagamento", "Referencia", "Conta_Bancaria", "Estado", "Liquidacoes", "Hash", "ID_Importacao", "Data_Importacao"] },
+  tbl_Faturas: { folha: "BM_Faturas", chave: "ID_Documento", colunas: ["ID_Documento", "Empresa", "Tipo_Documento", "Serie", "Numero", "Documento", "Data", "Data_Vencimento", "Codigo_Cliente", "Cliente", "NUIT", "Moeda", "Total", "Estado", "Hash", "ID_Importacao", "Data_Importacao",
+    "Total_Mercadoria", "Total_IVA", "Total_Desconto", "Total_Outros", "Impostos", "Sinal", "Tipo_Nome"] },
+  tbl_Recibos: { folha: "BM_Recibos", chave: "ID_Recibo", colunas: ["ID_Recibo", "Empresa", "Tipo_Documento", "Serie", "Numero", "Documento", "Data", "Codigo_Cliente", "Cliente", "Valor", "Modo_Pagamento", "Referencia", "Conta_Bancaria", "Estado", "Liquidacoes", "Hash", "ID_Importacao", "Data_Importacao",
+    "Valor_Desconto", "Filial", "Moeda", "Motivo", "Estorno", "Tipo_Nome"] },
   tbl_Liquidacoes: { folha: "BM_Liquidacoes", chave: "ID_Liquidacao", colunas: ["ID_Liquidacao", "ID_Recibo", "ID_Documento", "Documento_Liquidado", "Valor", "ID_Importacao"] },
   tbl_Importacoes: { folha: "BM_Importacoes", chave: "ID_Importacao", colunas: ["ID_Importacao", "Tipo", "Empresa", "Ficheiro", "Hash_Ficheiro", "Utilizador", "Data", "Linhas_Ficheiro", "Novos", "Alterados", "Iguais", "Rejeitados", "Id_Pedido"] },
   tbl_RecebimentosBanco: { folha: "BM_RecebimentosBanco", chave: "ID_Ligacao", colunas: ["ID_Ligacao", "ID_Recibo", "Data_Banco", "Valor", "Descritivo_Banco", "Conta", "Utilizador", "Data"] },
@@ -57,11 +60,12 @@ const TEXTO = ["ID_Documento", "ID_Recibo", "ID_Liquidacao", "ID_Importacao", "I
   "Codigo_Cliente", "Cliente", "NUIT", "Moeda", "Estado", "Hash", "Modo_Pagamento", "Referencia", "Conta_Bancaria", "Liquidacoes",
   "Documento_Liquidado", "Tipo", "Ficheiro", "Hash_Ficheiro", "Utilizador", "Descritivo_Banco", "Conta", "Id_Pedido",
   "ID_Extrato", "Nome_Original", "Nome_Padronizado", "Banco", "ID_Conta", "Formato", "ID_Movimento", "Descricao",
-  "ID_Conciliacao", "Tipo_Documento", "Motivos", "Metodo"];
+  "ID_Conciliacao", "Tipo_Documento", "Motivos", "Metodo", "Filial", "Motivo", "Estorno", "Tipo_Nome"];
 const DATAS = ["Data", "Data_Vencimento", "Data_Banco", "De", "Ate", "Data_Movimento", "Data_Valor"];
 const DATA_HORA = ["Data_Importacao"];
 const NUMEROS = ["Numero", "Total", "Valor", "Linhas_Ficheiro", "Novos", "Alterados", "Iguais", "Rejeitados",
-  "Movimentos_Ficheiro", "Ja_Existentes", "Saldo_Inicial", "Saldo_Final", "Debito", "Credito", "Saldo", "Valor_Banco", "Pontos"];
+  "Movimentos_Ficheiro", "Ja_Existentes", "Saldo_Inicial", "Saldo_Final", "Debito", "Credito", "Saldo", "Valor_Banco", "Pontos",
+  "Total_Mercadoria", "Total_IVA", "Total_Desconto", "Total_Outros", "Impostos", "Sinal", "Valor_Desconto"];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const digitos = (v: unknown) => texto(v).replace(/\D/g, "").replace(/^0+/, "");
 const cent = (v: unknown) => Math.round(Number(v) * 100);
@@ -178,12 +182,15 @@ function main(workbook: ExcelScript.Workbook, pedido: string): Resultado {
     return fim("OK", r.ligacoes + " ligação(ões) gravada(s).");
   }
   if (r.operacao === "base.consultar") {
-    const pedidas = Array.isArray(p.tabelas) && (p.tabelas as unknown[]).length ? (p.tabelas as unknown[]).map((x) => texto(x)) : Object.keys(TABELAS);
+    // Tabelas do livro que o script só lê (nunca cria nem altera): pagamentos com o nº do cheque, para a conciliação
+    const EXTERNAS = ["tblPagamentos"];
+    const pedidas = Array.isArray(p.tabelas) && (p.tabelas as unknown[]).length ? (p.tabelas as unknown[]).map((x) => texto(x)) : Object.keys(TABELAS).concat(EXTERNAS);
     const tabelas: TabelaLida[] = [];
     for (const nome of pedidas) {
-      if (!TABELAS[nome]) return fim("PEDIDO_INVALIDO", "Tabela desconhecida: " + nome);
+      const externa = EXTERNAS.indexOf(nome) >= 0;
+      if (!TABELAS[nome] && !externa) return fim("PEDIDO_INVALIDO", "Tabela desconhecida: " + nome);
       const t = workbook.getTable(nome);
-      if (!t) { tabelas.push({ tabela: nome, colunas: TABELAS[nome].colunas.slice(), linhas: [] }); continue; }
+      if (!t) { if (!externa) tabelas.push({ tabela: nome, colunas: TABELAS[nome].colunas.slice(), linhas: [] }); continue; }
       const tudo = t.getRange().getValues() as Valor[][]; // cabeçalho + corpo numa só leitura
       const colunas = tudo[0].map((v) => String(v));
       const linhas = tudo.slice(1).filter((l) => l.some((v) => texto(v) !== ""));
@@ -263,7 +270,7 @@ function main(workbook: ExcelScript.Workbook, pedido: string): Resultado {
     ligs.forEach((l, i) => {
       const onde = "ligação " + (i + 1) + ": ", tipo = texto(l?.Tipo_Documento);
       if (!texto(l?.ID_Movimento)) r.erros.push(onde + "ID_Movimento em falta");
-      if (tipo !== "despesa" && tipo !== "recibo") r.erros.push(onde + "Tipo_Documento deve ser despesa ou recibo");
+      if (tipo !== "pagamento" && tipo !== "despesa" && tipo !== "recibo") r.erros.push(onde + "Tipo_Documento deve ser pagamento, despesa ou recibo");
       if (!texto(l?.ID_Documento)) r.erros.push(onde + "ID_Documento em falta");
       if (!isFinite(Number(l?.Valor)) || Number(l?.Valor) <= 0 || !isFinite(Number(l?.Valor_Banco))) r.erros.push(onde + "valores inválidos");
       for (const c of Object.keys(l ?? {})) if (TABELAS.tbl_ConciliacaoBancaria.colunas.indexOf(c) < 0) r.erros.push("coluna desconhecida: " + c);
@@ -374,8 +381,9 @@ function abrir(workbook: ExcelScript.Workbook, nome: string, criar: boolean): Ta
     tab = { nome, t, folha: t.getWorksheet(), cab, l0, c0: indiceColuna(m[1]), n };
     if (n === 1 && tab.folha.getRangeByIndexes(l0, tab.c0, 1, cab.length).getValues()[0].every((v) => texto(v) === "")) tab.n = 0;
   }
+  // Colunas novas (versões mais recentes do script) acrescentadas à direita da tabela existente, sem mexer nos dados
   const faltam = def.colunas.filter((c) => tab.cab.indexOf(c) < 0);
-  if (faltam.length) return nome + ": faltam as colunas " + faltam.join(", ") + ".";
+  for (const c of faltam) { tab.t.addColumn(-1, undefined, c); tab.cab.push(c); }
   ABERTAS.set(nome, tab);
   return tab;
 }

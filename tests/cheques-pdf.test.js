@@ -132,3 +132,19 @@ test("despacho sem Data de Saída: só pelo nº do cheque, e como sugestão", ()
   // Com outro cheque: não é par
   assert.equal(conciliar([mov("m1", "2026-05-05", -9000, "Chq.Caixa 45564601", "45564601")], [semSaida("45564600")]).pares.length, 0);
 });
+
+test("tblPagamentos: cada pagamento é uma linha (cheque, data, conta), com os dados da despesa", () => {
+  const despesas = [{id: "x1", idDocumento: "D1", estado: "Pago", valor: 30000, dataSaida: "2026-03-01", requisicao: "R-77", fornecedor: "Fornecedor A", referencia: "", meio: ""}];
+  const tbl = [
+    {ID_Pagamento: "P1", ID_Despesa: "D1", Data_Pagamento: 46087, ID_Conta: "C9", Meio_Pagamento: "Cheque", Referencia_Transaccao: "45564600", Valor_Pagamento: 20000, Estado_Pagamento: "Confirmado"},
+    {ID_Pagamento: "P2", ID_Despesa: "D1", Data_Pagamento: "2026-03-20", ID_Conta: "C9", Meio_Pagamento: "Cheque", Referencia_Transaccao: "45564601", Valor_Pagamento: 10000, Estado_Pagamento: "Confirmado"},
+    {ID_Pagamento: "P3", ID_Despesa: "D1", Data_Pagamento: "2026-03-20", ID_Conta: "C9", Meio_Pagamento: "Cheque", Referencia_Transaccao: "45564602", Valor_Pagamento: 999, Estado_Pagamento: "Anulado"},
+  ];
+  const pags = C.pagamentosDaTabela(tbl, despesas, {idConta: "C9"});
+  assert.equal(pags.length, 2, "o anulado fica de fora");
+  assert.deepEqual(pags.map((p) => [p.idDocumento, p.cheque, p.data, p.tipo, p.idDespesa, p.fornecedor]),
+    [["P1", "45564600", "2026-03-06", "pagamento", "D1", "Fornecedor A"], ["P2", "45564601", "2026-03-20", "pagamento", "D1", "Fornecedor A"]]);
+  // Despesa paga em 2 cheques: cada débito liga ao seu pagamento
+  const r = C.conciliar([mov("m1", "2026-03-10", -20000, "Chq.Caixa 45564600", "45564600"), mov("m2", "2026-03-25", -10000, "Chq.Caixa 45564601", "45564601")], pags, {toleranciaDias: 5});
+  assert.deepEqual(r.pares.map((p) => [p.mov, p.pags[0], p.estado]), [["m1", "pag:P1", "automatico"], ["m2", "pag:P2", "automatico"]]);
+});
