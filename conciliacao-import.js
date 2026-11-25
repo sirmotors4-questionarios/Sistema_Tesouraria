@@ -66,7 +66,7 @@
     // A folha com mais linhas que parecem movimentos
     let melhor = null;
     for (const nome of livro.SheetNames) {
-      const matriz = XLSX.utils.sheet_to_json(livro.Sheets[nome], {header: 1, raw: true, defval: "", blankrows: false});
+      const matriz = XLSX.utils.sheet_to_json(livro.Sheets[nome], {header: 1, raw: true, defval: "", blankrows: true});
       const r = C.matrizParaMovimentos(matriz);
       if (!melhor || r.movimentos.length > melhor.resultado.movimentos.length) melhor = {folha: nome, matriz, resultado: r};
     }
@@ -196,5 +196,18 @@
     XLSX.writeFile(livro, nome);
   }
 
-  root.TES_IMPORTAR = Object.freeze({lerFicheiro, lerCsv, exportarExcel, LIBS});
+  // Folhas em bruto (listagens do PRIMAVERA): [{folha, matriz}] e o SHA-256 do ficheiro (detecção de reimportação).
+  async function lerFolhas(ficheiro) {
+    if (ficheiro.size > 25 * 1024 * 1024) throw Error("Ficheiro demasiado grande (máximo 25 MB).");
+    const ext = extensao(ficheiro.name), buffer = await ficheiro.arrayBuffer();
+    let hash = "";
+    try { hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buffer))].map((b) => b.toString(16).padStart(2, "0")).join(""); } catch {}
+    if (ext === "csv" || ext === "txt") return {hash, folhas: [{folha: "CSV", matriz: lerCsv(decodificar(buffer))}]};
+    if (!["xlsx", "xls", "xlsm", "ods"].includes(ext)) throw Error("Use o ficheiro Excel (.xlsx/.xls) exportado do PRIMAVERA.");
+    const XLSX = await importar(LIBS.xlsx);
+    const livro = XLSX.read(new Uint8Array(buffer), {type: "array", cellDates: false, dense: true});
+    return {hash, folhas: livro.SheetNames.map((folha) => ({folha, matriz: XLSX.utils.sheet_to_json(livro.Sheets[folha], {header: 1, raw: true, defval: "", blankrows: true})}))};
+  }
+
+  root.TES_IMPORTAR = Object.freeze({lerFicheiro, lerFolhas, lerCsv, exportarExcel, LIBS});
 })(globalThis);
