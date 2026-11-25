@@ -61,25 +61,30 @@ O pacote não está neste repositório público, porque contém os identificador
    substitua o código.
 
 ### 3.2 Importar o fluxo TES_BASE_MAE
+O pacote **não traz a acção «Executar script»**. O identificador do script só existe na conta de cada utilizador, e o
+Power Automate valida-o ao importar: com um marcador no lugar dele, recusa com «Unable to parse script reference». Por
+isso o pacote traz um bloco **Script** com um marcador, e o resto do fluxo lê o resultado com
+`last(result('Script'))`, seja qual for o nome da acção.
+
 1. Em make.powerautomate.com, vá a **Os meus fluxos → Importar → Importar pacote (legado)** e escolha
    `TES_BASE_MAE_pacote.zip`.
-2. Em **Configuração da importação**, escolha **Criar como novo**.
-3. Em **Recursos relacionados**, escolha as ligações:
-   - **Excel Online (Business)**: a mesma do FIN_IA_CONCILIACAO;
-   - **SharePoint**: uma ligação existente ou uma nova.
-4. Clique em **Importar** e depois abra o fluxo para editar.
-5. Na acção **Executar script**, confirme:
+2. Escolha **Criar como novo** e a ligação do **SharePoint**. Clique em **Importar**.
+3. Abra o fluxo para editar e vá a **Validar_Operacao → Verdadeiro → Script**.
+4. Por baixo do marcador `SUBSTITUIR_por_Executar_script`, acrescente **Excel Online (Business) → Executar script**:
    - Localização: *SIR MOTORS INTERNATIONAL*;
    - Biblioteca: *Documentos*;
    - Ficheiro: `General/Tesouraria e Facturação/01_Bases_de_Dados/Sistema de Tesouraria 1.2.xlsx`;
-   - Script: **TesourariaBaseMae** (o pacote traz `SELECCIONAR_TesourariaBaseMae` como marcador; escolha o script na lista);
-   - Parâmetro `pedido`: deve ficar `string(outputs('Pedido'))`.
-6. Na acção **Criar ficheiro**, confirme o site `https://sirmotos.sharepoint.com/sites/SIRMOTORSINTERNATIONAL`.
-   A pasta é `/Documentos Compartilhados/General/Tesouraria e Facturação/` mais a pasta enviada pelo site, por exemplo
-   `02_Importacoes/Bancos/BCI`.
-7. **Guarde** o fluxo. Depois abra o accionador **Quando um pedido HTTP é recebido** e copie o **URL HTTP POST**.
-8. No site, em **Conectar base de dados**, cole esse URL em **Endpoint HTTPS do TES_BASE_MAE**. Fica guardado só nesse
-   navegador e nunca vai para o GitHub.
+   - Script: **TesourariaBaseMae**;
+   - `pedido`: a expressão `string(outputs('Pedido'))`.
+5. Elimine o marcador e **guarde** o fluxo.
+6. Se a acção **Criar ficheiro** pedir, escolha o site `SIR MOTORS INTERNATIONAL`.
+7. Copie o **URL HTTP POST** do accionador e cole-o no site, em **Conectar base de dados → Endpoint HTTPS do
+   TES_BASE_MAE**. Fica guardado só nesse navegador e nunca vai para o GitHub.
+
+Enquanto faltar o passo 4, o fluxo responde `SCRIPT_POR_CONFIGURAR` e não grava nada.
+
+O script só aparece na lista se tiver sido criado com a **mesma conta da ligação do Excel**. Se não aparecer, use essa
+conta para o criar, ou partilhe o script com o livro (Excel → script → … → *Partilhar com outras pessoas neste livro*).
 
 Notas sobre o fluxo:
 - O accionador aceita **Qualquer pessoa** (URL com `sig=`), como os outros fluxos do site. Se a política do tenant o
@@ -95,7 +100,7 @@ Quando um pedido HTTP é recebido
 └─ Validar_Operacao: a operação começa por «banco.» ou «base.»?
    ├─ Sim
    │  ├─ Pedido = removeProperty(corpo, 'ficheiro')      → o ficheiro original nunca vai para o script
-   │  ├─ Executar script TesourariaBaseMae (pedido)
+   │  ├─ Script (bloco): Executar script TesourariaBaseMae (pedido), acrescentado depois de importar
    │  ├─ Resposta 200 com o resultado do script     → o site não espera pelo SharePoint
    │  ├─ Guardar_Ficheiro: sucesso, importar_extrato e ficheiro enviado?
    │  │  └─ Criar ficheiro (SharePoint) com o nome_padronizado devolvido pelo script
