@@ -70,3 +70,44 @@ Hash, Importado_Por, Data_Importacao), `tbl_MovimentosBancarios` (ID_Movimento, 
 Referencia, Valor, Saldo, Chave, Estado) e `tbl_Conciliacoes` (ID_Conciliacao, ID_Movimento, ID_Despesa, Tipo, Pontuacao,
 Motivos, Estado Confirmado/Anulado, Utilizador, Data). O `hash` do ficheiro e a `chave` do movimento impedem importar o
 mesmo extracto/movimento duas vezes. Uma despesa conciliada pode passar de *Aguardando Saída* a *Pago* com a data do banco.
+
+
+## Cheques (nº do cheque dos despachos)
+
+Nos despachos (tabela `Lançamentos`), o meio de pagamento fica em **«F. de Pagamento»** e o nº do cheque em **«Ref. Pagamento»**.
+No extracto, o nº aparece no descritivo («Chq.Caixa 45564506», «Ch.Comp.45564409», «Pagamento de Cheque 1294827») ou na referência.
+
+| Situação | Resultado |
+|---|---|
+| Nº igual e valor igual | **Automático**. O cheque pode ser debitado até 90 dias depois da data de saída (quando é apresentado ao banco) e até 3 dias antes. |
+| Vários despachos com o mesmo nº de cheque cuja soma é igual ao débito | **Automático**, um débito ligado a todas as despesas, sem limite de quantidade. |
+| Nº abreviado no despacho («4517» = 45564417: início + fim) | **Automático**, com a nota «registar o nº completo». |
+| Nº parecido (um algarismo trocado, a mais ou a menos) | **Sugestão**, com a nota «verificar digitação». Os dois números aparecem para corrigir o despacho. |
+| Nº diferente com o mesmo valor | Nunca é automático. |
+| O mesmo cheque e valor em dois despachos | **Sugestão**, com a nota «possível despacho duplicado». |
+
+Resultado com os extractos reais das contas BCI e ABSA e a base de despachos (25/11/2026):
+- a conciliação automática passou de **150 para 188 despesas** e as sugestões desceram de 50 para 38;
+- os dados mostraram 24 cheques registados abreviados, 6 com provável erro de digitação, 4 com nº diferente, 5 cheques que pagam várias despesas e 1 despacho possivelmente duplicado.
+
+**Recomendação para o registo dos despachos:** escrever sempre o nº completo do cheque, tal como está impresso, por exemplo 45564417 e não 4517.
+
+## PDFs impressos do browser e OCR
+
+- **PDF com texto (impresso do internet banking):** é sempre lido pelo texto e nunca vai para o OCR sem o utilizador pedir. Se a tabela não for reconhecida, o site diz isso e pede que se indiquem as colunas.
+- **Títulos de colunas cortados na margem** (por exemplo, o Vista Bank impresso pelo Edge, onde «CREDIT» e «BALANCE» ficam fora da página): as colunas em falta são deduzidas pelo alinhamento à direita dos valores.
+- **Saldo cortado sem cêntimos** («2,306,722.»): o saldo exacto é reconstruído a partir dos débitos e créditos. Cada saldo cortado limita os cêntimos, e a intersecção de todos dá o valor. Um saldo mal lido é assinalado e não invalida os outros.
+- **Contagem de movimentos:** «Results 1 - 354 of 354» é usado para confirmar que não falta nenhuma linha.
+- **Conta no PDF:** a conta é lida de «Account Number : 3368» e o NIB do IBAN moçambicano (MZ + 21 algarismos).
+- **OCR (PDF digitalizado ou imagem):**
+  - a página é tratada como **um bloco único** (PSM 6), com os espaços preservados e as páginas a cerca de 300 dpi;
+  - as confusões típicas em números são corrigidas (`]`, `|` e `l` → 1, `O` → 0);
+  - o texto nunca vai para colunas de valores.
+  - Medido com o extracto Vista convertido em imagem (3 páginas, 113 movimentos):
+
+    | | Movimentos lidos |
+    |---|---|
+    | Antes | 0 |
+    | Agora | **113, todos com data, valor e sinal certos** |
+
+- **Melhor prática:** sempre que o banco permitir, exportar em Excel/CSV. Se for PDF, imprimir em **paisagem** ou com **«Ajustar à página»**, para nenhuma coluna ficar cortada.
