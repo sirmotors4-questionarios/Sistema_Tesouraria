@@ -22,6 +22,9 @@
  *                       ainda não criadas vêm vazias. Só leitura: não cria nem altera nada.
  *
  * Cria as tabelas na primeira utilização (folhas BM_*). Valida tudo antes de escrever; não apaga facturas nem recibos.
+ * Exclusão mútua: o Power Automate não permite limitar a simultaneidade de um fluxo com resposta HTTP síncrona, por isso
+ * as operações que gravam reservam o livro (folha BM_Controlo, A2:C2). Se outra gravação estiver em curso devolvem
+ * EM_USO sem gravar nada e o site repete passados alguns segundos. A reserva expira ao fim de 150 s (script interrompido).
  * Desempenho (limite de 120 s do Power Automate; cada leitura é uma ida ao servidor do Excel):
  *  - cada tabela é aberta uma vez por execução com 2 leituras (cabeçalho + endereço do corpo); só se lêem as colunas
  *    necessárias (a chave), nunca a tabela inteira de movimentos;
@@ -61,7 +64,8 @@ const NUMEROS = ["Numero", "Total", "Valor", "Linhas_Ficheiro", "Novos", "Altera
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const digitos = (v: unknown) => texto(v).replace(/\D/g, "").replace(/^0+/, "");
 const cent = (v: unknown) => Math.round(Number(v) * 100);
-const LIMITE = 1500, LIMITE_MOV = 2500;
+const LIMITE = 1500, LIMITE_MOV = 2500, RESERVA_MS = 150000;
+const GRAVAM = ["base.importar", "base.ligar_banco", "banco.importar_extrato", "banco.conciliar", "banco.desfazer"];
 
 function texto(v: unknown): string { return v === null || v === undefined ? "" : String(v).trim(); }
 // "aaaa-mm-dd" (ou data-hora ISO) → número de série do Excel; outros valores ficam como vêm.
@@ -84,11 +88,21 @@ function main(workbook: ExcelScript.Workbook, pedido: string): Resultado {
   const t0 = Date.now();
   ABERTAS.clear();
   const r: Resultado = { sucesso: false, codigo: "", mensagem: "", operacao: "", novos: 0, alterados: 0, liquidacoes: 0, ligacoes: 0, erros: [], ms: 0, duplicados: 0, estado: "", nome_padronizado: "", tabelas: [] };
-  const fim = (codigo: string, mensagem: string) => { r.codigo = codigo; r.mensagem = mensagem; r.ms = Date.now() - t0; return r; };
+  let reserva: ExcelScript.Range | null = null;
+  const fim = (codigo: string, mensagem: string) => {
+    if (reserva) { reserva.setValues([["", 0, ""]]); reserva = null; } // liberta o livro (escrita, sem leitura)
+    r.codigo = codigo; r.mensagem = mensagem; r.ms = Date.now() - t0; return r;
+  };
 
   let p: Registo;
   try { p = JSON.parse(pedido || "{}") as Registo; } catch { return fim("PEDIDO_INVALIDO", "O pedido não é JSON válido."); }
   r.operacao = texto(p.operacao);
+  if (GRAVAM.indexOf(r.operacao) >= 0) {
+    const idPedido = texto(p.id_pedido) || String(t0) + "-" + String(Math.random()).slice(2, 8);
+    const ocupado = reservar(workbook, idPedido, r.operacao);
+    if (typeof ocupado === "string") return fim("EM_USO", ocupado);
+    reserva = ocupado;
+  }
 
   if (r.operacao === "base.importar") {
     const tipo = texto(p.tipo);
@@ -299,6 +313,19 @@ function main(workbook: ExcelScript.Workbook, pedido: string): Resultado {
     return fim("OK", r.ligacoes + " ligação(ões) removida(s).");
   }
   return fim("OPERACAO_DESCONHECIDA", "Operação não suportada: " + r.operacao);
+}
+
+// ---------- Reserva do livro (exclusão mútua entre execuções simultâneas) ----------
+// Uma leitura e uma escrita. Devolve o intervalo da reserva (para libertar no fim) ou a mensagem «em uso».
+function reservar(workbook: ExcelScript.Workbook, idPedido: string, operacao: string): ExcelScript.Range | string {
+  let f = workbook.getWorksheet("BM_Controlo");
+  if (!f) { f = workbook.addWorksheet("BM_Controlo"); f.getRange("A1:C1").setValues([["Reservado_Por", "Desde_ms", "Operacao"]]); }
+  const rg = f.getRange("A2:C2"), v = rg.getValues()[0];
+  const dono = texto(v[0]), desde = Number(v[1]);
+  if (dono && dono !== idPedido && isFinite(desde) && Date.now() - desde < RESERVA_MS)
+    return "Outra gravação está em curso (" + texto(v[2]) + "). Nada foi gravado; tente de novo dentro de alguns segundos.";
+  rg.setValues([[idPedido, Date.now(), operacao]]);
+  return rg;
 }
 
 // ---------- Tabelas (camada rápida) ----------

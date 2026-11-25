@@ -13,6 +13,12 @@ export function livro() {
   function novaFolha(nome) {
     const f = {nome, cab: null, tabela: null, formatos: {}, abaixo: []};
     f.getRangeByIndexes = (r, c, nr, nc) => intervalo(f, r, c, nr, nc);
+    // Células soltas por endereço (ex.: reserva em BM_Controlo!A2:C2)
+    f.celulas = {};
+    f.getRange = (end) => ({
+      getValues: () => { cont.leituras++; return [f.celulas[end] ? f.celulas[end].slice() : ["", "", ""]]; },
+      setValues: (vs) => { cont.escritas++; f.celulas[end] = vs[0].slice(); },
+    });
     f.addTable = () => {
       const t = {headers: f.cab.slice(), rows: [f.cab.map(() => "")], folha: f};
       Object.assign(t, {

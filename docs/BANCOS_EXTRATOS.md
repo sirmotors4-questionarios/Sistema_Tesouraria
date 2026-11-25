@@ -12,6 +12,7 @@ movimento do banco com as despesas (saídas) e os recibos.
 | O mesmo ficheiro não entra duas vezes. Cada ficheiro é identificado pelo SHA-256 do seu conteúdo (`ID_Extrato`). | Office Script: `EXTRATO_JA_IMPORTADO`. O site também bloqueia antes de enviar. |
 | O mesmo movimento não entra duas vezes, mesmo que venha de outro formato (CSV, Excel ou PDF), de um extracto com período sobreposto ou de um lote repetido. | Office Script: só **acrescenta** movimentos cuja chave `ID_Movimento` ainda não existe. |
 | Um extracto só é gravado na conta certa: o nº de conta indicado no ficheiro tem de coincidir com a conta seleccionada. | Site (bloqueia) e Office Script (recusa movimentos de outra conta). |
+| Duas gravações ao mesmo tempo (dois utilizadores ou dois separadores) nunca se misturam: as operações que gravam reservam o livro. Quem chega com outra gravação em curso recebe `EM_USO`, sem nada gravado, e o site repete sozinho de 5 em 5 s. | Office Script: reserva em `BM_Controlo!A2:C2`, que expira ao fim de 150 s se o script for interrompido. |
 | Cada documento (despesa ou recibo) fica conciliado com um único movimento. Cada movimento fica conciliado com um único conjunto de documentos, cuja soma tem de ser igual ao valor do banco. | Office Script: `DOCUMENTO_JA_CONCILIADO`, `MOVIMENTO_JA_CONCILIADO` e `VALIDACAO`. |
 | Só se concilia o que está na base mãe. | Office Script: `MOVIMENTO_INEXISTENTE` («grave primeiro o extracto»). |
 
@@ -83,13 +84,14 @@ O pacote não está neste repositório público, porque contém os identificador
 Notas sobre o fluxo:
 - O accionador aceita **Qualquer pessoa** (URL com `sig=`), como os outros fluxos do site. Se a política do tenant o
   impedir, peça ao administrador uma excepção para este fluxo.
-- **Uma execução de cada vez** (simultaneidade 1): a verificação de duplicados nunca corre em paralelo, nem com dois
-  utilizadores a importar ao mesmo tempo.
+- **Sem controlo de simultaneidade no accionador:** o Power Automate não o permite com resposta HTTP síncrona (erro
+  `InvalidConcurrencyConfiguration`). A exclusão mútua é feita pela **reserva do livro** no Office Script: quem chega
+  com outra gravação em curso recebe `EM_USO` e o site repete sozinho.
 - O URL com `sig=` dá acesso ao fluxo. Use-o só em dispositivos de confiança e, se for exposto, regenere-o.
 
 ### 3.3 O que o fluxo faz
 ```
-Quando um pedido HTTP é recebido (concorrência 1)
+Quando um pedido HTTP é recebido
 └─ Validar_Operacao: a operação começa por «banco.» ou «base.»?
    ├─ Sim
    │  ├─ Pedido = removeProperty(corpo, 'ficheiro')      → o ficheiro original nunca vai para o script
@@ -143,8 +145,8 @@ No **site**:
 Limites a ter em conta:
 - Cada lote conta para o limite diário de execuções de scripts por utilizador.
 - O limite do *Executar script* é 120 s. Se um lote falhar, repetir é seguro: o extracto fica `Parcial` até ao último lote.
-- **Uma execução de cada vez** (simultaneidade 1) garante que nunca há duplicados. O preço é que dois utilizadores a
-  gravar ao mesmo tempo esperam um pelo outro.
+- A **reserva do livro** garante que duas gravações nunca correm ao mesmo tempo. O preço é que dois utilizadores a gravar
+  ao mesmo tempo esperam um pelo outro; o site repete de 5 em 5 s, até 2 minutos. Custa 1 leitura e 2 escritas por pedido.
 - `base.consultar` devolve as tabelas inteiras. Hoje são cerca de 7 000 movimentos, entre 1 e 2 MB. Com vários anos
   será preciso filtrar por período.
 
