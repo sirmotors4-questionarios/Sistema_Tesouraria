@@ -44,8 +44,10 @@ type Valor = string | number | boolean;
 type Registo = Record<string, unknown>;
 
 const TABELAS: Record<string, { folha: string; chave: string; colunas: string[] }> = {
-  tbl_Faturas: { folha: "BM_Faturas", chave: "ID_Documento", colunas: ["ID_Documento", "Empresa", "Tipo_Documento", "Serie", "Numero", "Documento", "Data", "Data_Vencimento", "Codigo_Cliente", "Cliente", "NUIT", "Moeda", "Total", "Estado", "Hash", "ID_Importacao", "Data_Importacao"] },
-  tbl_Recibos: { folha: "BM_Recibos", chave: "ID_Recibo", colunas: ["ID_Recibo", "Empresa", "Tipo_Documento", "Serie", "Numero", "Documento", "Data", "Codigo_Cliente", "Cliente", "Valor", "Modo_Pagamento", "Referencia", "Conta_Bancaria", "Estado", "Liquidacoes", "Hash", "ID_Importacao", "Data_Importacao"] },
+  tbl_Faturas: { folha: "BM_Faturas", chave: "ID_Documento", colunas: ["ID_Documento", "Empresa", "Tipo_Documento", "Serie", "Numero", "Documento", "Data", "Data_Vencimento", "Codigo_Cliente", "Cliente", "NUIT", "Moeda", "Total", "Estado", "Hash", "ID_Importacao", "Data_Importacao",
+    "Total_Mercadoria", "Total_IVA", "Total_Desconto", "Total_Outros", "Impostos", "Sinal", "Tipo_Nome"] },
+  tbl_Recibos: { folha: "BM_Recibos", chave: "ID_Recibo", colunas: ["ID_Recibo", "Empresa", "Tipo_Documento", "Serie", "Numero", "Documento", "Data", "Codigo_Cliente", "Cliente", "Valor", "Modo_Pagamento", "Referencia", "Conta_Bancaria", "Estado", "Liquidacoes", "Hash", "ID_Importacao", "Data_Importacao",
+    "Valor_Desconto", "Filial", "Moeda", "Motivo", "Estorno", "Tipo_Nome"] },
   tbl_Liquidacoes: { folha: "BM_Liquidacoes", chave: "ID_Liquidacao", colunas: ["ID_Liquidacao", "ID_Recibo", "ID_Documento", "Documento_Liquidado", "Valor", "ID_Importacao"] },
   tbl_Importacoes: { folha: "BM_Importacoes", chave: "ID_Importacao", colunas: ["ID_Importacao", "Tipo", "Empresa", "Ficheiro", "Hash_Ficheiro", "Utilizador", "Data", "Linhas_Ficheiro", "Novos", "Alterados", "Iguais", "Rejeitados", "Id_Pedido"] },
   tbl_RecebimentosBanco: { folha: "BM_RecebimentosBanco", chave: "ID_Ligacao", colunas: ["ID_Ligacao", "ID_Recibo", "Data_Banco", "Valor", "Descritivo_Banco", "Conta", "Utilizador", "Data"] },
@@ -57,11 +59,12 @@ const TEXTO = ["ID_Documento", "ID_Recibo", "ID_Liquidacao", "ID_Importacao", "I
   "Codigo_Cliente", "Cliente", "NUIT", "Moeda", "Estado", "Hash", "Modo_Pagamento", "Referencia", "Conta_Bancaria", "Liquidacoes",
   "Documento_Liquidado", "Tipo", "Ficheiro", "Hash_Ficheiro", "Utilizador", "Descritivo_Banco", "Conta", "Id_Pedido",
   "ID_Extrato", "Nome_Original", "Nome_Padronizado", "Banco", "ID_Conta", "Formato", "ID_Movimento", "Descricao",
-  "ID_Conciliacao", "Tipo_Documento", "Motivos", "Metodo"];
+  "ID_Conciliacao", "Tipo_Documento", "Motivos", "Metodo", "Filial", "Motivo", "Estorno", "Tipo_Nome"];
 const DATAS = ["Data", "Data_Vencimento", "Data_Banco", "De", "Ate", "Data_Movimento", "Data_Valor"];
 const DATA_HORA = ["Data_Importacao"];
 const NUMEROS = ["Numero", "Total", "Valor", "Linhas_Ficheiro", "Novos", "Alterados", "Iguais", "Rejeitados",
-  "Movimentos_Ficheiro", "Ja_Existentes", "Saldo_Inicial", "Saldo_Final", "Debito", "Credito", "Saldo", "Valor_Banco", "Pontos"];
+  "Movimentos_Ficheiro", "Ja_Existentes", "Saldo_Inicial", "Saldo_Final", "Debito", "Credito", "Saldo", "Valor_Banco", "Pontos",
+  "Total_Mercadoria", "Total_IVA", "Total_Desconto", "Total_Outros", "Impostos", "Sinal", "Valor_Desconto"];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const digitos = (v: unknown) => texto(v).replace(/\D/g, "").replace(/^0+/, "");
 const cent = (v: unknown) => Math.round(Number(v) * 100);
@@ -374,8 +377,9 @@ function abrir(workbook: ExcelScript.Workbook, nome: string, criar: boolean): Ta
     tab = { nome, t, folha: t.getWorksheet(), cab, l0, c0: indiceColuna(m[1]), n };
     if (n === 1 && tab.folha.getRangeByIndexes(l0, tab.c0, 1, cab.length).getValues()[0].every((v) => texto(v) === "")) tab.n = 0;
   }
+  // Colunas novas (versões mais recentes do script) acrescentadas à direita da tabela existente, sem mexer nos dados
   const faltam = def.colunas.filter((c) => tab.cab.indexOf(c) < 0);
-  if (faltam.length) return nome + ": faltam as colunas " + faltam.join(", ") + ".";
+  for (const c of faltam) { tab.t.addColumn(-1, undefined, c); tab.cab.push(c); }
   ABERTAS.set(nome, tab);
   return tab;
 }

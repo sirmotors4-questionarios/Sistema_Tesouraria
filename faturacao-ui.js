@@ -94,18 +94,27 @@
       // A folha que produz mais registos válidos
       let melhor = null;
       for (const f of folhas) {
-        const r = B.lerListagem(f.matriz, {tipo: st.tipo, empresa: $(st.p + "empresa").value.trim()});
+        const r = B.lerListagem(f.matriz, {...opcoesLeitura(st, ficheiro.name)});
         if (!melhor || r.registos.length > melhor.r.registos.length) melhor = {f, r};
       }
       Object.assign(st, {matriz: melhor?.f.matriz || [], folha: melhor?.f.folha || "", hash, ficheiro: ficheiro.name, mapa: null});
+      // Empresa detectada (cabeçalho do relatório, nome do ficheiro ou clientes): preenchida no campo, editável
+      const det = melhor?.r?.meta?.empresaDetectada;
+      if (det && !$(st.p + "empresa").value.trim()) $(st.p + "empresa").value = det;
       interpretar(st);
       const repetida = dados().importacoes.find((i) => hash && String(i.Hash_Ficheiro || "") === hash);
       if (repetida) $(st.p + "nota").textContent = "Atenção: este mesmo ficheiro já foi importado (" + String(repetida.ID_Importacao) + ").";
     } catch (e) { prog(st, e.message || String(e), "conc-erro"); }
     finally { $(st.p + "ficheiro").value = ""; }
   }
+  // Opções de leitura: empresa escolhida, nomes do cadastro, nome do ficheiro (empresa/período) e facturas da base
+  // (para deduzir a empresa de ficheiros que não a indicam)
+  function opcoesLeitura(st, nomeFicheiro) {
+    return {tipo: st.tipo, empresa: $(st.p + "empresa").value.trim(), empresas: ctx().empresas().map((e) => e.nome), nomeFicheiro: nomeFicheiro || st.ficheiro || "",
+      faturasBase: st.tipo === "recibos" ? dados().faturas : []};
+  }
   function interpretar(st) {
-    const opcoes = {tipo: st.tipo, empresa: $(st.p + "empresa").value.trim()};
+    const opcoes = opcoesLeitura(st);
     if (st.mapa) Object.assign(opcoes, st.mapa);
     const r = B.lerListagem(st.matriz, opcoes);
     st.leitura = r;
@@ -114,7 +123,9 @@
     st.tab = st.diff.novos.length ? "novos" : st.diff.alterados.length ? "alterados" : r.rejeitados.length ? "rejeitados" : "iguais";
     $(st.p + "previa").hidden = false;
     $(st.p + "nota").textContent = "";
-    if (!r.registos.length && !r.rejeitados.length) {
+    if (r.meta?.precisaEmpresa) {
+      prog(st, r.avisos[0], "conc-erro"); $(st.p + "empresa").focus();
+    } else if (!r.registos.length && !r.rejeitados.length) {
       prog(st, (r.avisos[0] || "Nenhum registo reconhecido.") + " Use «Indicar colunas».", "conc-erro");
     } else {
       const semEmpresa = r.rejeitados.some((x) => /empresa em falta/.test(x.motivo));
@@ -125,8 +136,14 @@
   function desenharPrevia(st) {
     const d = st.diff, r = st.leitura; if (!d) return;
     const n = {novos: d.novos.length, alterados: d.alterados.length, rejeitados: r.rejeitados.length, ausentes: d.ausentes.length, iguais: d.iguais.length};
-    $(st.p + "cards").innerHTML = [["Lidos no ficheiro", r.registos.length, ""], ["Novos", n.novos, "entram na base"], ["Alterados", n.alterados, "diferem da base"], ["Rejeitados", n.rejeitados, "não serão gravados"]]
+    $(st.p + "cards").innerHTML = [["Lidos no ficheiro", r.registos.length, r.controlo ? (r.controlo.ok ? "totais do relatório conferem" : "totais NÃO conferem") : ""], ["Novos", n.novos, "entram na base"], ["Alterados", n.alterados, "diferem da base"], ["Rejeitados", n.rejeitados, "não serão gravados"]]
       .map(([t, v, s]) => '<div class="metric"><small>' + esc(t) + "</small><strong>" + esc(v) + "</strong><span>" + esc(s) + "</span></div>").join("");
+    // Totais de controlo do relatório e avisos da leitura
+    let ctl = document.getElementById(st.p + "controlo");
+    if (!ctl) { ctl = document.createElement("div"); ctl.id = st.p + "controlo"; ctl.className = "bm-controlo"; $(st.p + "cards").after(ctl); }
+    ctl.innerHTML = (r.controlo ? '<div class="bm-controlo-tit">Totais de controlo do relatório ' + (r.controlo.ok ? '<span class="tag conc-tag-ok">todos conferem</span>' : '<span class="tag waiting">há diferenças</span>') + "</div><table><tbody>" +
+      r.controlo.linhas.map((x) => "<tr><td>" + esc(x.rotulo) + "</td><td>" + esc(x.tipo || "?") + (x.n ? " · " + x.n + " doc." : "") + '</td><td class="num">' + esc(mt(x.valor)) + '</td><td class="num">' + esc(mt(x.soma)) + "</td><td>" + (x.confere ? "✓" : "✗ " + esc(mt(x.valor - x.soma))) + "</td></tr>").join("") + "</tbody></table>" : "") +
+      (r.avisos?.length ? "<ul>" + r.avisos.map((a) => "<li>" + esc(a) + "</li>").join("") + "</ul>" : "");
     document.querySelectorAll("#" + (st.tipo === "faturas" ? "facturacao" : "recebimentos") + " [data-bm-tab]").forEach((b) => { b.classList.toggle("active", b.dataset.bmTab === st.tab); b.dataset.n = n[b.dataset.bmTab]; });
     const chave = TIPO[st.tipo].chave;
     let head, linhas;
@@ -244,24 +261,25 @@
   function desenharRecebimentos() {
     const {d, r} = calculo;
     const liqPorRecibo = new Map();
-    for (const l of d.liquidacoes) { const k = String(l.ID_Recibo ?? "").trim(); liqPorRecibo.set(k, [...(liqPorRecibo.get(k) || []), l]); }
+    for (const l of [...d.liquidacoes, ...(r.inferidas || [])]) { const k = String(l.ID_Recibo ?? "").trim(); liqPorRecibo.set(k, [...(liqPorRecibo.get(k) || []), l]); }
     const ligados = new Map(d.ligacoes.map((l) => [String(l.ID_Recibo ?? "").trim(), l]));
     const f = chave($("bm-rec-pesquisa").value);
     const recs = d.recibos.filter((x) => !f || chave([x.Documento, x.Cliente, x.Codigo_Cliente, x.Referencia].join(" ")).includes(f)).sort((a, b) => String(C.data(b.Data)).localeCompare(String(C.data(a.Data))));
     $("bm-rec-body").innerHTML = recs.slice(0, 500).map((x) => {
       const id = String(x.ID_Recibo ?? "").trim(), lig = ligados.get(id);
       return "<tr><td>" + esc(x.Documento) + "</td><td>" + esc(dataPt(x.Data)) + '</td><td class="conc-wrap">' + esc(x.Cliente) + '</td><td class="num">' + esc(mt(C.numero(x.Valor))) + "</td><td>" + esc(x.Modo_Pagamento) + "</td><td>" + esc(x.Referencia) + '</td><td class="conc-wrap">' +
-        esc((liqPorRecibo.get(id) || []).map((l) => (l.Documento_Liquidado || l.ID_Documento) + " (" + mt(C.numero(l.Valor)) + ")").join(", ") || "por alocar") + "</td><td>" +
+        ((liqPorRecibo.get(id) || []).map((l) => esc((l.Documento_Liquidado || l.ID_Documento) + " (" + mt(C.numero(l.Valor)) + ")") + (l.inferida ? ' <span class="note" title="' + esc(l.regra) + '">(inferida)</span>' : "")).join(", ") || "por alocar") + "</td><td>" +
         (lig ? '<span class="badge pago" title="' + esc(lig.Descritivo_Banco) + '">' + esc(dataPt(lig.Data_Banco)) + "</span>" : /numer|dinheiro/.test(chave(x.Modo_Pagamento)) ? '<span class="note">numerário</span>' : '<span class="badge saida">por ligar</span>') + "</td></tr>";
     }).join("") || '<tr><td colspan="8" class="empty">' + (d.recibos.length ? "Nenhum recibo com esta pesquisa." : "A base mãe ainda não tem recibos. Importe a listagem de recibos do PRIMAVERA.") + "</td></tr>";
     const valorRecebido = d.recibos.filter((x) => String(x.Estado) !== "Anulado").reduce((s, x) => s + (C.numero(x.Valor) || 0), 0);
     const activos = d.recibos.filter((x) => String(x.Estado) !== "Anulado");
     const nLigados = activos.filter((x) => ligados.has(String(x.ID_Recibo ?? "").trim())).length;
     const porLigar = activos.filter((x) => !ligados.has(String(x.ID_Recibo ?? "").trim()) && !/numer|dinheiro/.test(chave(x.Modo_Pagamento))).length;
-    $("bm-rec-cards").innerHTML = [["Recibos", d.recibos.length, mt(valorRecebido) + " MT"], ["Ligados ao banco", nLigados, porLigar + " por ligar (excepto numerário)"], ["Excepções", r.excepcoes.length, "a resolver"],
+    $("bm-rec-cards").innerHTML = [["Recibos", d.recibos.length, mt(valorRecebido) + " MT"], ["Ligados ao banco", nLigados, porLigar + " por ligar (excepto numerário)"],
+      ["Ligações inferidas", (r.inferidas || []).length, (r.inferidas || []).filter((x) => /rever/.test(x.regra)).length + " a rever (vários com o mesmo valor)"], ["Excepções", r.excepcoes.length, "a resolver"],
       ["Facturas em aberto", r.documentos.filter((x) => x.saldo > 0).length, mt(r.documentos.reduce((s, x) => s + x.saldo, 0)) + " MT"]]
       .map(([t, v, s]) => '<div class="metric"><small>' + esc(t) + "</small><strong>" + esc(v) + "</strong><span>" + esc(s) + "</span></div>").join("");
-    $("bm-exc-body").innerHTML = r.excepcoes.map((e) => '<tr><td class="conc-wrap">' + esc(e.tipo) + "</td><td>" + esc(e.documento) + "</td><td>" + esc(e.reciboDoc || "") + '</td><td class="conc-wrap">' + esc(e.cliente) + '</td><td class="num">' + esc(mt(e.valor)) + "</td></tr>").join("") ||
+    $("bm-exc-body").innerHTML = r.excepcoes.map((e) => '<tr><td class="conc-wrap">' + esc(e.tipo) + '</td><td class="conc-wrap">' + esc(e.candidatos ? "candidatos: " + e.candidatos : e.documento) + "</td><td>" + esc(e.reciboDoc || "") + '</td><td class="conc-wrap">' + esc(e.cliente) + '</td><td class="num">' + esc(mt(e.valor)) + "</td></tr>").join("") ||
       '<tr><td colspan="5" class="empty">' + (d.recibos.length ? "Sem excepções: todos os recibos estão alocados a documentos da base." : "Sem dados.") + "</td></tr>";
     $("bm-rec-resumo").textContent = "Facturas ↔ recibos calculado em " + dataPt(hoje()) + ".";
   }

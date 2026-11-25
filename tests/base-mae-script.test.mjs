@@ -89,10 +89,14 @@ test("ligações recibo ↔ banco: upsert por ID_Ligacao", () => {
   assert.equal(w.ler("tbl_RecebimentosBanco").length, 1);
 });
 
-test("estrutura: tabela existente sem colunas obrigatórias dá erro claro", () => {
+test("estrutura: tabela existente de uma versão anterior recebe as colunas novas, sem perder dados", () => {
   const w = livro();
   const f = w.addWorksheet("Manual"); f.getRangeByIndexes(0, 0, 1, 2).setValues([["ID_Documento", "Total"]]);
   f.addTable().setName("tbl_Faturas");
+  w.getTable("tbl_Faturas").rows = [["ANTIGO|FA|1|1", 123]];
   const r = chamar(w, pedido("faturas", FATURAS));
-  assert.equal(r.codigo, "ESTRUTURA"); assert.match(r.mensagem, /faltam as colunas Empresa/);
+  assert.equal(r.sucesso, true, r.mensagem);
+  const t = w.getTable("tbl_Faturas");
+  assert.ok(["Empresa", "Total_IVA", "Sinal", "Tipo_Nome"].every((c) => t.headers.includes(c)));
+  assert.deepEqual(t.rows[0].slice(0, 2), ["ANTIGO|FA|1|1", 123], "linha antiga intacta");
 });
