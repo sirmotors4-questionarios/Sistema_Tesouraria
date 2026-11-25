@@ -434,7 +434,7 @@
       const m = M.get(p.mov), ps = descPags(p.pags);
       return '<tr data-mov="' + esc(p.mov) + '"><td>' + esc(dataPt(m?.data)) + '</td><td class="conc-wrap">' + esc(m?.descricao) + '</td><td class="num">' + esc(mt(Math.abs(m?.valor || 0))) + "</td>" +
         "<td>" + ps.map((x) => esc(x.requisicao)).join("<br>") + '</td><td class="conc-wrap">' + ps.map((x) => esc(x.fornecedor)).join("<br>") + "</td>" +
-        "<td>" + ps.map((x) => esc([x.despacho, x.referencia].filter(Boolean).join(" / ") || "—")).join("<br>") + "</td><td>" + ps.map((x) => esc(dataPt(x.data || x.dataPrevista))).join("<br>") + "</td>" +
+        "<td>" + ps.map((x) => esc([x.despacho, x.referencia].filter(Boolean).join(" / ") || "—")).join("<br>") + "</td><td>" + ps.map((x) => esc((x.data ? dataPt(x.data) : "sem saída"))).join("<br>") + "</td>" +
         '<td><div class="conc-motivos"><span class="conc-pontos" title="Pontuação (0–100)">' + esc(p.pontos) + "</span>" + p.motivos.map((t) => '<span class="conc-chip">' + esc(curto(t)) + "</span>").join("") + (p.ambiguo ? '<span class="conc-chip amb">outro candidato igual</span>' : "") + "</div></td>" +
         '<td class="conc-acoes">' + botoes + "</td></tr>";
     };
@@ -458,7 +458,7 @@
         return '<tr data-mov="' + esc(m.id) + '"><td>' + esc(dataPt(m.data)) + '</td><td class="conc-wrap">' + esc(m.descricao) + '</td><td class="num">' + esc(mt(Math.abs(m.valor))) + "</td><td>" + ls.map((l) => esc(l.Documento || l.ID_Documento) + " (" + esc(mt(l.Valor)) + ")").join("<br>") + "</td><td>" + esc([...new Set(ls.map((l) => l.Tipo_Documento))].join(", ")) + "</td><td>" + esc([...new Set(ls.map((l) => l.Metodo))].join(", ")) + '</td><td class="conc-acoes"><button type="button" class="text-btn" data-res="desfazer-base" title="Remove esta conciliação da base mãe">Desfazer</button></td></tr>'; }).join("");
     } else {
       head = '<tr><th>Requisição / recibo</th><th>Fornecedor / cliente</th><th class="num">Valor</th><th>Estado</th><th>Data</th><th>Despacho</th><th>Referência</th><th>Conta</th></tr>';
-      body = res.tesourariaSemPar.map((id) => P.get(id)).filter(Boolean).map((p) => "<tr><td>" + esc(p.requisicao) + '</td><td class="conc-wrap">' + esc(p.fornecedor) + '</td><td class="num">' + esc(mt(p.valor)) + "</td><td>" + esc(p.estado) + "</td><td>" + esc(dataPt(p.data || p.dataPrevista)) + "</td><td>" + esc(p.despacho) + "</td><td>" + esc(p.referencia) + "</td><td>" + esc([p.banco, p.conta].filter(Boolean).join(" · ")) + "</td></tr>").join("");
+      body = res.tesourariaSemPar.map((id) => P.get(id)).filter(Boolean).map((p) => "<tr><td>" + esc(p.requisicao) + '</td><td class="conc-wrap">' + esc(p.fornecedor) + '</td><td class="num">' + esc(mt(p.valor)) + "</td><td>" + esc(p.estado) + "</td><td>" + esc((p.data ? dataPt(p.data) : "sem saída")) + "</td><td>" + esc(p.despacho) + "</td><td>" + esc(p.referencia) + "</td><td>" + esc([p.banco, p.conta].filter(Boolean).join(" · ")) + "</td></tr>").join("");
     }
     $("conc-res-head").innerHTML = head;
     $("conc-res-body").innerHTML = body || '<tr><td colspan="9" class="empty">Nada nesta lista.</td></tr>';
@@ -502,7 +502,7 @@
     const livres = estado.resultado.tesourariaSemPar.map((id) => P.get(id)).filter((p) => p && (p.tipo === "recibo") === credito)
       .filter((p) => !f || [p.requisicao, p.fornecedor, p.despacho, p.referencia, mt(p.valor), String(p.valor)].join(" ").toLowerCase().includes(f))
       .sort((a, b) => Math.abs(a.valor - alvo) - Math.abs(b.valor - alvo));
-    $("conc-assoc-lista").innerHTML = livres.map((p) => '<label class="conc-assoc-item"><input type="checkbox" value="' + esc(p.id) + '"' + (marcados.has(p.id) ? " checked" : "") + "><span><b>" + esc(mt(p.valor)) + " MT</b> · " + esc(p.requisicao) + " · " + esc(p.fornecedor) + "<br><small>" + esc(dataPt(p.data || p.dataPrevista)) + (p.despacho ? " · despacho " + esc(p.despacho) : "") + (p.referencia ? " · ref. " + esc(p.referencia) : "") + "</small></span></label>").join("") ||
+    $("conc-assoc-lista").innerHTML = livres.map((p) => '<label class="conc-assoc-item"><input type="checkbox" value="' + esc(p.id) + '"' + (marcados.has(p.id) ? " checked" : "") + "><span><b>" + esc(mt(p.valor)) + " MT</b> · " + esc(p.requisicao) + " · " + esc(p.fornecedor) + "<br><small>" + esc((p.data ? dataPt(p.data) : "sem saída")) + (p.despacho ? " · despacho " + esc(p.despacho) : "") + (p.referencia ? " · ref. " + esc(p.referencia) : "") + "</small></span></label>").join("") ||
       '<p class="note">Não há ' + (credito ? "recibos" : "pagamentos") + ' sem correspondência neste período. Alargue as datas ou a tolerância e concilie novamente.</p>';
     somaAssociar();
   }
