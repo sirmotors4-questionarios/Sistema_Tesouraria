@@ -71,3 +71,69 @@
 .module-source{margin:20px 0 0;font-size:12px;border-top:1px solid #e0e6ed;padding-top:14px;color:#667587}
 .module-source strong{color:#405266}
 @media(max-width:950px){.module-capabilities{grid-template-columns:1fr}.module-capabilities article{min-height:0}.sidebar{position:static;max-height:none}}
+/* ---------- Conciliação bancária ---------- */
+.conc-num{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#be2537;color:#fff;font-size:12px;margin-right:8px}
+.conc-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.conc-drop{position:relative;display:flex!important;flex-direction:column;align-items:center;gap:6px;padding:26px 16px;border:2px dashed #cfd8e2;border-radius:12px;background:#fafbfc;text-align:center;cursor:pointer;color:#182330}
+.conc-drop:hover,.conc-drop.over{border-color:#be2537;background:#fff6f7}
+.conc-drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.conc-drop span{color:#738092;font-size:12px}
+.conc-linha{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:12px}
+.conc-check{display:flex;align-items:center;gap:6px;color:#3b4a5a}
+.conc-param label{display:flex;flex-direction:column;font-size:12px;color:#738092;gap:4px}
+.conc-param input{border:1px solid #dfe6ed;border-radius:8px;padding:8px 10px;font:inherit}
+.conc-param input[type=number]{width:90px}
+#conc-progresso.conc-a-ler{color:#8a611f}
+#conc-progresso.conc-a-ler::before{content:"";display:inline-block;width:10px;height:10px;margin-right:8px;border:2px solid #e7ad54;border-top-color:transparent;border-radius:50%;animation:conc-gira .8s linear infinite;vertical-align:-1px}
+#conc-progresso.conc-ok{color:#1d7a43}
+#conc-progresso.conc-erro,.conc-aviso{color:#b3261e}
+@keyframes conc-gira{to{transform:rotate(360deg)}}
+.conc-validacao{margin-bottom:14px}
+.conc-validacao ul{margin:8px 0 0;padding-left:18px;color:#8a611f;line-height:1.6}
+.conc-saldos{display:flex;flex-wrap:wrap;gap:18px;align-items:center;color:#738092}
+.conc-saldos b{color:#182330;margin-left:4px}
+.conc-tag-ok{background:#e4f4ea;color:#1d7a43}
+.conc-tabela{max-height:520px}
+.conc-tabela input{border:1px solid transparent;background:transparent;border-radius:6px;padding:5px 6px;font:inherit;width:100%;min-width:0}
+.conc-tabela input:hover,.conc-tabela input:focus{border-color:#dfe6ed;background:#fff}
+.conc-tabela .conc-desc{min-width:260px}.conc-tabela .conc-ref{min-width:90px}.conc-tabela .conc-valor{text-align:right;min-width:110px}
+.conc-tabela input[type=date]{min-width:130px}
+.conc-invalido{border-color:#b3261e!important;background:#fff1f0!important}
+.conc-tabela .num{text-align:right}
+.conc-quebra td{background:#fff8e6}
+.conc-dup td{background:#fdecec}
+.conc-acoes{white-space:nowrap}
+.conc-acoes .icon-btn{margin-left:4px}
+.conc-wrap{white-space:normal;min-width:180px;max-width:340px}
+.conc-cards .conc-aviso{grid-column:1/-1;margin:0}
+.conc-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px;border-bottom:1px solid #e8edf2}
+.conc-tab{border:0;background:none;padding:10px 12px;font:inherit;color:#738092;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.conc-tab.active{color:#182330;border-bottom-color:#be2537;font-weight:600}
+.conc-tab[data-n]::after{content:attr(data-n);margin-left:6px;background:#eef2f6;border-radius:10px;padding:1px 7px;font-size:11px}
+.conc-pontos{display:inline-block;min-width:26px;text-align:center;background:#eef2f6;border-radius:6px;padding:1px 5px;font-weight:700;font-size:11px}
+.conc-amb{color:#8a611f;font-weight:600}
+.conc-mini{padding:6px 10px;margin-right:6px}
+.conc-mapa{border:1px solid #f1dca9;background:#fffbf0;border-radius:10px;padding:14px;margin-bottom:14px}
+.conc-mapa-campos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0}
+.conc-mapa-campos label{display:flex;flex-direction:column;font-size:12px;color:#738092;gap:4px}
+.conc-mapa-campos select,.conc-mapa-campos input{border:1px solid #dfe6ed;border-radius:8px;padding:7px 8px;font:inherit}
+.conc-dialog{max-width:620px;width:92vw;border:0;border-radius:14px;padding:22px;box-shadow:0 20px 60px #0003}
+.conc-dialog input[type=search]{width:100%;border:1px solid #dfe6ed;border-radius:8px;padding:9px 10px;font:inherit;margin:8px 0}
+.conc-assoc-lista{max-height:320px;overflow:auto;border:1px solid #e8edf2;border-radius:10px}
+.conc-assoc-item{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid #eef2f6;cursor:pointer;line-height:1.5}
+.conc-assoc-item:hover{background:#fafbfc}
+.conc-assoc-item small{color:#738092}
+@media (max-width:900px){.conc-grid,.conc-mapa-campos{grid-template-columns:1fr}}
+.conc-saldos .tag{margin-top:0}
+.conc-acoes .icon-btn{width:28px;height:28px;font-size:14px}
+.conc-tabela td.conc-acoes{min-width:0}
+.conc-dialog{max-width:620px!important;width:min(620px,calc(100vw - 32px))!important}
+.conc-check{font-weight:400;font-size:13px;flex-direction:row!important}
+.conc-check input{width:auto;padding:0;margin:0}
+.conc-motivos{display:flex;flex-wrap:wrap;gap:4px;max-width:260px;white-space:normal}
+.conc-chip{background:#eef2f6;color:#3b4a5a;border-radius:10px;padding:1px 7px;font-size:11px}
+.conc-chip.amb{background:#fff3d9;color:#8a611f}
+#conc-res-body td.conc-wrap{max-width:240px}
+.conc-tabela td{min-width:0}
+.conc-tabela th,.conc-tabela td{padding:10px 8px}
+#conc-res-body td.conc-wrap{max-width:200px;min-width:140px}

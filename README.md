@@ -5,6 +5,7 @@ Primeira implementação do sistema de Tesouraria, baseada nos formulários VBA 
 ## Estado
 - **Despesas:** interface inicial implementada, com pesquisa, filtros, novo registo, edição em modo de demonstração, dashboard e exportação CSV.
 - **Despachos:** secção inicial de consulta; gravação/associação real depende do modelo Excel.
+- **Conciliação Bancária:** importa extractos em Excel/CSV, PDF do banco e PDF digitalizado/imagem (OCR no navegador), valida os saldos e emparelha os débitos com as saídas da Tesouraria; exporta o relatório. Ainda não grava no Excel. Ver [docs/CONCILIACAO.md](docs/CONCILIACAO.md).
 - **Recebimentos:** deliberadamente suspenso até integração PRIMAVERA.
 - **Power Automate:** adaptador preparado, **sem ligação configurada**. Nenhuma escrita real no SharePoint foi activada.
 - **Segurança:** não publicar URLs de gatilhos HTTP, tokens, credenciais ou dados financeiros no GitHub. O modo demo guarda exclusivamente no navegador.
@@ -23,4 +24,7 @@ Abrir `index.html`. O aviso superior indica **Modo demonstração**. Dados criad
 ## Referências de migração
 VBA: `Lançamento.frm` → lançamentos; `Despachos.frm` → despacho; `C_Docs.frm` → documentos; `Recebimento.frm` → suspenso. O Excel original não foi fornecido neste ZIP, logo nomes das colunas ainda têm de ser conferidos.
 
-Interface: `index.html`, `styles.css`, `app.js`; configuração operacional em `config.js`. O projecto RH é referência de organização e experiência, não uma fonte de dados partilhada.
+Interface: `index.html`, `styles.css`, `app.js`, `conciliacao-*.js`; configuração operacional em `config.js`. O projecto RH é referência de organização e experiência, não uma fonte de dados partilhada.
+
+## Testes
+`node tests/contrato.test.js` e `node --test tests/conciliacao.test.js`.
