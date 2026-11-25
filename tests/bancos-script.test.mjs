@@ -208,3 +208,18 @@ test("diagnóstico do parâmetro «pedido»: vazio, texto, sem operação, embru
   assert.equal(bruto(JSON.stringify({body: {operacao: "base.consultar"}})).sucesso, true);
   assert.equal(bruto(JSON.stringify(JSON.stringify({operacao: "base.consultar"}))).sucesso, true);
 });
+
+test("base.consultar devolve também a tblPagamentos do livro (só leitura), sem a criar quando não existe", () => {
+  const w = livro();
+  let r = chamar(w, {operacao: "base.consultar"});
+  assert.equal(JSON.parse(r.tabelas_json).some((t) => t.tabela === "tblPagamentos"), false);
+  assert.equal(w.getTable("tblPagamentos"), undefined);
+  const f = w.addWorksheet("Pagamentos"), cab = ["ID_Pagamento", "ID_Despesa", "Data_Pagamento", "Meio_Pagamento", "Referencia_Transaccao", "Valor_Pagamento"];
+  f.getRangeByIndexes(0, 0, 1, cab.length).setValues([cab]);
+  const t = f.addTable(f.getRangeByIndexes(0, 0, 1, cab.length), true); t.setName("tblPagamentos");
+  w.getTable("tblPagamentos").rows = [["P1", "D1", 46087, "Cheque", "45564600", 20000]];
+  r = chamar(w, {operacao: "base.consultar"});
+  const tp = JSON.parse(r.tabelas_json).find((x) => x.tabela === "tblPagamentos");
+  assert.deepEqual(tp.colunas, cab);
+  assert.deepEqual(tp.linhas, [["P1", "D1", 46087, "Cheque", "45564600", 20000]]);
+});

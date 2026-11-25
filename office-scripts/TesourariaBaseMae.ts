@@ -14,12 +14,13 @@
  *                       mesmo ficheiro, de outro formato (CSV/Excel/PDF) ou de um extracto de período sobreposto.
  *                       O ficheiro é registado em tbl_Extratos pelo SHA-256 (ID_Extrato): um ficheiro já importado por
  *                       completo é recusado. Extractos grandes chegam em lotes; o último traz final=true.
- *  banco.conciliar    — grava ligações movimento ↔ despesa/recibo em tbl_ConciliacaoBancaria. Um documento só pode estar
+ *  banco.conciliar    — grava ligações movimento ↔ pagamento (tblPagamentos)/despesa/recibo em tbl_ConciliacaoBancaria. Um documento só pode estar
  *                       ligado a um movimento e um movimento só a um conjunto de documentos (cuja soma = valor do banco).
  *                       Repetir o mesmo pedido não duplica. Os recibos também ficam em tbl_RecebimentosBanco.
  *  banco.desfazer     — remove a conciliação dos movimentos indicados (para corrigir uma ligação errada).
- *  base.consultar     — devolve as tabelas da base mãe (colunas + linhas em matriz, compacto) para o site. Tabelas
- *                       ainda não criadas vêm vazias. Só leitura: não cria nem altera nada.
+ *  base.consultar     — devolve as tabelas da base mãe (colunas + linhas em matriz, compacto) para o site, e também a
+ *                       tblPagamentos do livro (nº do cheque de cada pagamento). Tabelas ainda não criadas vêm vazias.
+ *                       Só leitura: não cria nem altera nada.
  *
  * Cria as tabelas na primeira utilização (folhas BM_*). Valida tudo antes de escrever; não apaga facturas nem recibos.
  * Exclusão mútua: o Power Automate não permite limitar a simultaneidade de um fluxo com resposta HTTP síncrona, por isso
@@ -178,12 +179,15 @@ function main(workbook: ExcelScript.Workbook, pedido: string): Resultado {
     return fim("OK", r.ligacoes + " ligação(ões) gravada(s).");
   }
   if (r.operacao === "base.consultar") {
-    const pedidas = Array.isArray(p.tabelas) && (p.tabelas as unknown[]).length ? (p.tabelas as unknown[]).map((x) => texto(x)) : Object.keys(TABELAS);
+    // Tabelas do livro que o script só lê (nunca cria nem altera): pagamentos com o nº do cheque, para a conciliação
+    const EXTERNAS = ["tblPagamentos"];
+    const pedidas = Array.isArray(p.tabelas) && (p.tabelas as unknown[]).length ? (p.tabelas as unknown[]).map((x) => texto(x)) : Object.keys(TABELAS).concat(EXTERNAS);
     const tabelas: TabelaLida[] = [];
     for (const nome of pedidas) {
-      if (!TABELAS[nome]) return fim("PEDIDO_INVALIDO", "Tabela desconhecida: " + nome);
+      const externa = EXTERNAS.indexOf(nome) >= 0;
+      if (!TABELAS[nome] && !externa) return fim("PEDIDO_INVALIDO", "Tabela desconhecida: " + nome);
       const t = workbook.getTable(nome);
-      if (!t) { tabelas.push({ tabela: nome, colunas: TABELAS[nome].colunas.slice(), linhas: [] }); continue; }
+      if (!t) { if (!externa) tabelas.push({ tabela: nome, colunas: TABELAS[nome].colunas.slice(), linhas: [] }); continue; }
       const tudo = t.getRange().getValues() as Valor[][]; // cabeçalho + corpo numa só leitura
       const colunas = tudo[0].map((v) => String(v));
       const linhas = tudo.slice(1).filter((l) => l.some((v) => texto(v) !== ""));
@@ -263,7 +267,7 @@ function main(workbook: ExcelScript.Workbook, pedido: string): Resultado {
     ligs.forEach((l, i) => {
       const onde = "ligação " + (i + 1) + ": ", tipo = texto(l?.Tipo_Documento);
       if (!texto(l?.ID_Movimento)) r.erros.push(onde + "ID_Movimento em falta");
-      if (tipo !== "despesa" && tipo !== "recibo") r.erros.push(onde + "Tipo_Documento deve ser despesa ou recibo");
+      if (tipo !== "pagamento" && tipo !== "despesa" && tipo !== "recibo") r.erros.push(onde + "Tipo_Documento deve ser pagamento, despesa ou recibo");
       if (!texto(l?.ID_Documento)) r.erros.push(onde + "ID_Documento em falta");
       if (!isFinite(Number(l?.Valor)) || Number(l?.Valor) <= 0 || !isFinite(Number(l?.Valor_Banco))) r.erros.push(onde + "valores inválidos");
       for (const c of Object.keys(l ?? {})) if (TABELAS.tbl_ConciliacaoBancaria.colunas.indexOf(c) < 0) r.erros.push("coluna desconhecida: " + c);

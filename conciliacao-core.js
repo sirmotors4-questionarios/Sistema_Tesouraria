@@ -712,6 +712,29 @@
       estado: r.estado, conta: r.conta || "", banco: r.banco || "", empresa: r.empresa || ""}));
   }
 
+  // Pagamentos a partir da tblPagamentos (registo de cada saída de dinheiro: Data_Pagamento, ID_Conta, Meio_Pagamento,
+  // Referencia_Transaccao = nº do cheque, Valor_Pagamento), com os dados da despesa (fornecedor, requisição, despacho)
+  // pelo ID_Despesa. Cada linha é uma unidade de conciliação (uma despesa paga em vários cheques tem várias linhas).
+  function pagamentosDaTabela(tblPagamentos, registos, opcoes = {}) {
+    const iso = (v) => {
+      if (typeof v === "number" && v > 1000) return new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000).toISOString().slice(0, 10);
+      const t = texto(v), m = t.match(/^(\d{4})-(\d{2})-(\d{2})/) || t.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+      return !m ? "" : m[1].length === 4 ? m[1] + "-" + m[2] + "-" + m[3] : m[3] + "-" + m[2] + "-" + m[1];
+    };
+    const porDespesa = new Map();
+    for (const r of registos || []) { const k = texto(r.idDocumento); if (k) porDespesa.set(k, r); }
+    const linhas = (tblPagamentos || []).filter((p) => texto(p.ID_Pagamento) && !/anulad|cancelad|estornad/.test(chaveTexto(p.Estado_Pagamento))).map((p) => {
+      const d = porDespesa.get(texto(p.ID_Despesa)) || {};
+      return {id: "pag:" + texto(p.ID_Pagamento), idDocumento: texto(p.ID_Pagamento), idDespesa: texto(p.ID_Despesa), estado: "Pago",
+        valor: numero(p.Valor_Pagamento), dataSaida: iso(p.Data_Pagamento) || d.dataSaida || "", dataDespacho: d.dataDespacho || "",
+        referencia: texto(p.Referencia_Transaccao) || d.referencia || "", meio: texto(p.Meio_Pagamento) || d.meio || "",
+        idConta: texto(p.ID_Conta) || d.idConta || "", conta: d.conta || "", banco: d.banco || "",
+        requisicao: d.requisicao || "", fornecedor: d.fornecedor || "", despacho: d.despacho || "", empresa: d.empresa || ""};
+    });
+    const meta = new Map(linhas.map((l) => [l.id, l]));
+    return pagamentosParaConciliar(linhas, opcoes).map((p) => ({...p, tipo: "pagamento", idDespesa: meta.get(p.id)?.idDespesa || ""}));
+  }
+
   function resumo(movimentos, pagamentos, resultado) {
     const porId = new Map(movimentos.map((m) => [m.id, m]));
     const confirmados = resultado.pares.filter((p) => p.estado === "automatico" || p.estado === "confirmado");
@@ -773,5 +796,5 @@
 
   return Object.freeze({numero, data, campoDoCabecalho, detectarCabecalho, matrizParaMovimentos, linhasPdfParaMatriz,
     textoParaMovimentos, validar, pontuar, conciliar, pagamentosParaConciliar, resumo, relatorio, csv, formatar, CAMPOS,
-    idsMovimentos, nomePadronizado, contaDoFicheiro, mesmaConta, movimentosParaBase, movimentosDaBase});
+    idsMovimentos, nomePadronizado, contaDoFicheiro, mesmaConta, movimentosParaBase, movimentosDaBase, pagamentosDaTabela});
 });
