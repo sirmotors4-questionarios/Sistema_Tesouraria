@@ -64,8 +64,37 @@
   });
   $("conc-conta-num").addEventListener("input", () => { desenharBase(); invalidar(); });
   // A conta indicada no ficheiro selecciona a conta do cadastro (mesmo nº e, se o ficheiro o disser, mesmo banco).
+  // Associações confirmadas pelo utilizador: nº (ou NIB) que aparece no extracto → conta do cadastro. Servem para
+  // bancos que mudaram a numeração (ex.: Vista Bank depois da mudança de gestão). Guardadas só neste navegador.
+  const ALIAS_KEY = "sir.tesouraria.bancos.contasConfirmadas.v1";
+  const lerAliases = () => { try { return JSON.parse(localStorage.getItem(ALIAS_KEY) || "{}") || {}; } catch { return {}; } };
+  const chaveAlias = (v) => String(v ?? "").replace(/\D/g, "").replace(/^0+/, "");
+  function aliasDe(lf) {
+    const a = lerAliases();
+    for (const v of [lf?.conta, lf?.nib]) { const k = chaveAlias(v); if (k && a[k]) return a[k]; }
+    return null;
+  }
+  function guardarAlias(lf, idConta, numeroCadastro) {
+    const a = lerAliases(), q = {idConta, numero: numeroCadastro, em: new Date().toISOString().slice(0, 10)};
+    for (const v of [lf?.conta, lf?.nib]) { const k = chaveAlias(v); if (k) a[k] = q; }
+    try { localStorage.setItem(ALIAS_KEY, JSON.stringify(a)); } catch {}
+  }
+  // A conta seleccionada corresponde ao ficheiro? Pelo nº, pelo NIB do cadastro ou por uma associação já confirmada.
+  function contaConfere(lf, k) {
+    if (!lf?.conta && !lf?.nib) return true;
+    if (lf.conta && k.conta && C.mesmaConta(lf.conta, k.conta)) return true;
+    const c = contasActivas().find((x) => String(x.ID_Conta) === String(k.idConta));
+    const nibCad = chaveAlias(c?.NIB ?? c?.NIB_IBAN ?? c?.IBAN);
+    if (lf.nib && nibCad && nibCad.endsWith(chaveAlias(lf.nib).slice(-15))) return true;
+    const al = aliasDe(lf);
+    return !!(al && ((k.idConta && al.idConta === k.idConta) || (!k.idConta && chaveAlias(al.numero) === chaveAlias(k.conta))));
+  }
   function escolherContaDoFicheiro(lf) {
     if (!lf || !lf.conta || $("conc-conta").value) return;
+    const al = aliasDe(lf);
+    if (al && al.idConta && contasActivas().some((c) => String(c.ID_Conta) === al.idConta)) {
+      $("conc-conta").value = al.idConta; $("conc-conta-num").value = al.numero || ""; return;
+    }
     const cand = contasActivas().filter((c) => C.mesmaConta(c.Numero_Conta ?? c["Nº de Conta"], lf.conta) && (!lf.banco || !c.Banco || banco1(c.Banco) === banco1(lf.banco)));
     if (cand.length === 1) { $("conc-conta").value = String(cand[0].ID_Conta); $("conc-conta-num").value = String(cand[0].Numero_Conta ?? lf.conta); }
     else if (!$("conc-conta-num").value) $("conc-conta-num").value = lf.conta;
@@ -89,6 +118,7 @@
         }
       }
       estado.leitura = leitura; estado.ficheiro = ficheiro; estado.origem = "ficheiro";
+      $("conc-confirmar-conta").checked = false;
       escolherContaDoFicheiro(leitura.contaFicheiro);
       aplicarResultado(leitura.resultado);
       const n = estado.movimentos.length;
@@ -174,11 +204,22 @@
     const datas = estado.movimentos.map((m) => m.data).filter(Boolean).sort();
     estado.nomePadronizado = C.nomePadronizado({banco: k.banco, conta: k.conta, de: datas[0], ate: datas[datas.length - 1], extensao: estado.leitura.extensao});
     let bloqueio = "";
+    const caixa = $("conc-confirmar-conta-wrap");
+    caixa.hidden = true;
     if (lf.conta) {
-      const confere = k.conta && C.mesmaConta(lf.conta, k.conta);
-      info.push("Conta indicada no ficheiro: <b>" + esc(lf.conta) + "</b>" + (lf.nib ? " · NIB " + esc(lf.nib) : "") + (confere ? ' <span class="tag conc-tag-ok">confere com a conta seleccionada</span>' : ""));
+      const directo = k.conta && C.mesmaConta(lf.conta, k.conta), confere = k.conta && contaConfere(lf, k);
+      info.push("Conta indicada no ficheiro: <b>" + esc(lf.conta) + "</b>" + (lf.nib ? " · NIB " + esc(lf.nib) : "") +
+        (directo ? ' <span class="tag conc-tag-ok">confere com a conta seleccionada</span>'
+          : confere ? ' <span class="tag conc-tag-ok">associada a esta conta (confirmado antes)</span>' : ""));
       if (!k.conta) bloqueio = "Seleccione a conta bancária (o ficheiro indica a conta " + lf.conta + ").";
-      else if (!confere) bloqueio = "O ficheiro é da conta " + lf.conta + " mas está seleccionada a conta " + k.conta + ". Corrija a conta antes de gravar.";
+      else if (!confere) {
+        // Numeração diferente (ex.: o banco mudou de sistema): o utilizador confirma em vez de ser obrigado a mudar
+        caixa.hidden = false;
+        $("conc-confirmar-conta-texto").textContent = "O extracto indica a conta " + lf.conta + " e está seleccionada a conta " + k.conta +
+          (contaSeleccionada().texto ? " (" + contaSeleccionada().texto + ")" : "") + ". Confirmo que este extracto é desta conta (o banco mudou a numeração).";
+        if (!$("conc-confirmar-conta").checked) bloqueio = "O nº da conta no extracto (" + lf.conta + ") é diferente do cadastro (" + k.conta + "). Confirme a conta para gravar, ou escolha outra.";
+        else info.push('<span class="tag waiting">Conta confirmada manualmente</span> Os movimentos ficam registados na conta do cadastro (' + esc(k.conta) + ").");
+      }
     } else if (!k.conta) bloqueio = "Seleccione a conta bancária: o ficheiro não indica o número da conta.";
     if (!bloqueio && erroIds) bloqueio = erroIds;
     info.push("Nome padronizado: <b>" + esc(estado.nomePadronizado) + "</b> <span class=\"note\">(original: " + esc(estado.leitura.nome) + ")</span>");
@@ -203,6 +244,7 @@
   }
   ["input", "change"].forEach((ev) => $("conc-banco").addEventListener(ev, () => { desenharBase(); invalidar(); }));
   $("conc-forcar").addEventListener("change", desenharBase);
+  $("conc-confirmar-conta").addEventListener("change", desenharBase);
   try { $("conc-enviar-ficheiro").checked = localStorage.getItem(ENVIAR_KEY) === "1"; } catch {}
   $("conc-enviar-ficheiro").addEventListener("change", (e) => { try { localStorage.setItem(ENVIAR_KEY, e.target.checked ? "1" : "0"); } catch {} });
   const paraBase64 = (f) => new Promise((ok, erro) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1] || ""); r.onerror = () => erro(r.error); r.readAsDataURL(f); });
@@ -238,6 +280,7 @@
         sessao.movimentos.push(...lotes[i]);
       }
       duplicados += todas.length - enviar.length;
+      if ($("conc-confirmar-conta").checked && !$("conc-confirmar-conta-wrap").hidden) guardarAlias(estado.leitura.contaFicheiro, k.idConta, k.conta);
       if (ultimo?.nome_padronizado) { extrato.Nome_Padronizado = ultimo.nome_padronizado; estado.nomePadronizado = ultimo.nome_padronizado; }
       sessao.extratos.push({...extrato, Novos: novos, Ja_Existentes: duplicados, Estado: ultimo?.estado || (novos ? "Completo" : "Sem movimentos novos"), Data_Importacao: agora});
       estado.msgBase = {t: "Gravado na base mãe: " + novos + " movimento(s) novo(s), " + duplicados + " já existiam (ignorados). Extracto registado como «" + estado.nomePadronizado + "»" + (ficheiro ? "; o fluxo guarda o ficheiro original no SharePoint com este nome." : "."), tipo: "conc-ok"};

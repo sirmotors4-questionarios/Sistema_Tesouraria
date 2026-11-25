@@ -31,6 +31,17 @@ Esta chave foi validada com os extractos reais:
 - O ficheiro original não é alterado. O nome padronizado fica registado em `tbl_Extratos`.
 - O ficheiro pode ser guardado no SharePoint com esse nome pelo fluxo TES_BASE_MAE (secção 3) ou descarregado pelo botão «Descarregar com nome padronizado».
 
+**Conta com numeração diferente da do banco.** Quando o banco muda de sistema, o nº no extracto pode deixar de
+coincidir com o do cadastro. É o caso do Vista Bank depois da mudança de gestão: o extracto diz 3368 e o cadastro tem
+o nº novo.
+- O site não obriga a escolher o nº do ficheiro. Mostra os dois números e a opção **«Confirmo que este extracto é desta
+  conta»**.
+- Depois de confirmar e gravar, a associação (nº e NIB do extracto → conta do cadastro) fica guardada **neste
+  navegador**. Na vez seguinte, a conta é escolhida automaticamente e aparece «associada a esta conta (confirmado
+  antes)».
+- Os movimentos ficam sempre registados com o nº do **cadastro**, por isso extractos do sistema antigo e do novo não
+  se duplicam.
+
 ## 2. Tabelas criadas pelo script na primeira gravação (folhas `BM_*`)
 
 | Tabela | Chave | Colunas |

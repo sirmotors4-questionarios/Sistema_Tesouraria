@@ -166,3 +166,7 @@
 .conc-base .conc-linha{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:6px 0}
 .conc-base label input:not([type=checkbox]){margin-left:6px;max-width:140px}
 .conc-base .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+
+.conc-confirmar{display:flex;gap:8px;align-items:flex-start;margin:8px 0;padding:8px 10px;border:1px solid #e0b100;background:#fff8db;border-radius:8px;font-size:.92rem}
+.conc-confirmar input{margin-top:3px}
+.conc-confirmar[hidden]{display:none}
