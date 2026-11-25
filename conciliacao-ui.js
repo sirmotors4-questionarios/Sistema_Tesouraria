@@ -15,7 +15,8 @@
   const dataPt = (iso) => (/^\d{4}-\d{2}-\d{2}$/.test(iso || "") ? iso.slice(8, 10) + "/" + iso.slice(5, 7) + "/" + iso.slice(0, 4) : "—");
   const ctx = () => window.TES_CONTEXTO || {ligado: () => false, contas: () => [], registos: () => []};
   const MAPAS_KEY = "sir.tesouraria.conciliacao.mapas.v1", ENVIAR_KEY = "sir.tesouraria.bancos.enviarFicheiro.v1";
-  const LOTE_MOV = 1000, LOTE_LIG = 1000, MAX_ENVIO = 10 * 1024 * 1024;
+  // Lotes grandes = menos execuções do Office Script (custo fixo de arranque de cada uma); o script aceita até 2 500 movimentos.
+  const LOTE_MOV = 2000, LOTE_LIG = 1000, MAX_ENVIO = 10 * 1024 * 1024;
 
   // ---------- Base mãe (tabelas devolvidas pela consulta + o que foi gravado nesta sessão) ----------
   const sessao = {extratos: [], movimentos: [], conciliacoes: [], desfeitos: new Set()};
@@ -239,7 +240,7 @@
       duplicados += todas.length - enviar.length;
       if (ultimo?.nome_padronizado) { extrato.Nome_Padronizado = ultimo.nome_padronizado; estado.nomePadronizado = ultimo.nome_padronizado; }
       sessao.extratos.push({...extrato, Novos: novos, Ja_Existentes: duplicados, Estado: ultimo?.estado || (novos ? "Completo" : "Sem movimentos novos"), Data_Importacao: agora});
-      estado.msgBase = {t: "Gravado na base mãe: " + novos + " movimento(s) novo(s), " + duplicados + " já existiam (ignorados). Extracto registado como «" + estado.nomePadronizado + "»" + (ficheiro ? " e enviado para o SharePoint." : "."), tipo: "conc-ok"};
+      estado.msgBase = {t: "Gravado na base mãe: " + novos + " movimento(s) novo(s), " + duplicados + " já existiam (ignorados). Extracto registado como «" + estado.nomePadronizado + "»" + (ficheiro ? "; o fluxo guarda o ficheiro original no SharePoint com este nome." : "."), tipo: "conc-ok"};
       avisarBancos();
     } catch (e) {
       const ja = /EXTRATO_JA_IMPORTADO/.test(e.message);

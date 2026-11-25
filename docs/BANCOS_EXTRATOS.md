@@ -94,9 +94,9 @@ Quando um pedido HTTP é recebido (concorrência 1)
    ├─ Sim
    │  ├─ Pedido = removeProperty(corpo, 'ficheiro')      → o ficheiro original nunca vai para o script
    │  ├─ Executar script TesourariaBaseMae (pedido)
+   │  ├─ Resposta 200 com o resultado do script     → o site não espera pelo SharePoint
    │  ├─ Guardar_Ficheiro: sucesso, importar_extrato e ficheiro enviado?
    │  │  └─ Criar ficheiro (SharePoint) com o nome_padronizado devolvido pelo script
-   │  ├─ Resposta 200 com o resultado do script (+ aviso se o ficheiro não foi guardado)
    │  └─ Resposta_Erro_Script 502 se o script falhar ou exceder o tempo
    └─ Não → Resposta 400 OPERACAO_NAO_SUPORTADA
 ```
@@ -112,13 +112,41 @@ Se preferir usar o fluxo V9:
 3. Para o site ver o histórico, o fluxo de consulta tem de devolver `tbl_Extratos`, `tbl_MovimentosBancarios` e
    `tbl_ConciliacaoBancaria`. Use *Listar linhas* com paginação, ou chame `base.consultar`.
 
-### 3.5 Limites
-- Os movimentos e as conciliações são enviados em lotes de 1 000. Cada chamada fica bem abaixo do limite de 120 s do
-  *Executar script*.
-- Um extracto de 5 008 movimentos (ACCESS POS) gera 6 execuções, a contar para o limite diário de scripts por utilizador.
-- Se um lote falhar, repetir é seguro: o extracto fica `Parcial` até ao último lote.
-- `base.consultar` devolve todas as tabelas de uma vez. Hoje são cerca de 7 000 movimentos, perto de 1–2 MB. Com
-  vários anos de movimentos será preciso filtrar por período.
+### 3.5 Rapidez e limites
+O tempo de cada pedido depende quase só do *Executar script*. Cada execução tem um custo fixo de arranque e cada
+leitura ao livro é uma ida ao servidor do Excel.
+
+No **script**:
+- cada tabela é aberta com 2 leituras (cabeçalho e endereço);
+- da tabela de movimentos só se lê a coluna `ID_Movimento`;
+- cada bloco novo é escrito de uma vez (formatos e valores) e a tabela é redimensionada no fim;
+- `base.consultar` lê cada tabela numa só leitura.
+
+| Operação | Leituras antes | Leituras agora |
+|---|---|---|
+| Importar um lote | 20–33 | 1–8 |
+| Ficheiro repetido | 7 | 3 |
+| Conciliar | 12 | 3 |
+| Consultar a base | 12 | 3 |
+
+Nas escritas, um lote de 1 000 movimentos passou de cerca de 20 para 6.
+
+No **fluxo**:
+- responde ao site logo que o script termina e só depois guarda o ficheiro original no SharePoint;
+- o *Executar script* tem no máximo uma nova tentativa, ao fim de 5 s, para não passar o tempo de espera do site.
+
+No **site**:
+- envia os movimentos em lotes de 2 000 (o script aceita até 2 500) e só os que ainda não estão na base;
+- as conciliações seguem em lotes de 1 000 e as listagens do PRIMAVERA também em lotes de 1 000;
+- um extracto de 5 008 movimentos gera 3 execuções em vez de 6.
+
+Limites a ter em conta:
+- Cada lote conta para o limite diário de execuções de scripts por utilizador.
+- O limite do *Executar script* é 120 s. Se um lote falhar, repetir é seguro: o extracto fica `Parcial` até ao último lote.
+- **Uma execução de cada vez** (simultaneidade 1) garante que nunca há duplicados. O preço é que dois utilizadores a
+  gravar ao mesmo tempo esperam um pelo outro.
+- `base.consultar` devolve as tabelas inteiras. Hoje são cerca de 7 000 movimentos, entre 1 e 2 MB. Com vários anos
+  será preciso filtrar por período.
 
 ## 4. Utilização
 

@@ -57,7 +57,7 @@ Base mãe ──► Facturação (saldo de cada documento) ──► Cobranças 
    - Sim → **Executar script** (Excel Online Business): ficheiro *Sistema de Tesouraria*, script *TesourariaBaseMae*,
      parâmetro `pedido` = `string(triggerBody())` → **Resposta** 200 com o corpo = `outputs('Executar_script')?['body/result']`
      (contém `sucesso`, `codigo`, `mensagem`, `novos`, `alterados`).
-   - O site envia lotes de até 300 registos; cada chamada fica bem abaixo dos 120 s.
+   - O site envia lotes de até 1 000 registos; cada chamada fica bem abaixo dos 120 s.
 3. **Fluxo de consulta** (`TES_API_Consultar`): acrescentar *List rows present in a table* para `tbl_Faturas`,
    `tbl_Recibos`, `tbl_Liquidacoes`, `tbl_RecebimentosBanco` e `tbl_Importacoes` (com paginação, limite adequado ao
    volume) e incluí-las em `tabelas` (`[{"tabela":"tbl_Faturas","linhas":[...]}]`). Na primeira utilização, depois da
