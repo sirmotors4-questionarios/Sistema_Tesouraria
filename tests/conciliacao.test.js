@@ -182,3 +182,42 @@ test("selecção de pagamentos pelo ID_Conta quando existe", () => {
   const regs = [{id: "a", estado: "Pago", valor: 10, dataSaida: "2026-11-02", idConta: "C7", conta: ""}, {id: "b", estado: "Pago", valor: 10, dataSaida: "2026-11-02", idConta: "C8", conta: "0001234567"}];
   assert.deepEqual(C.pagamentosParaConciliar(regs, {idConta: "C7", conta: "0001234567"}).map((x) => x.id), ["a"]);
 });
+
+// Formatos reais (dados fictícios): normalizado da equipa, CSV do BCI e CSV do ABSA
+test("formato normalizado (ID_Transacao;…;Data_Movimento;…;Debito;Credito;Valor;Saldo)", () => {
+  const m = [["ID_Transacao", "Banco", "Titular", "Conta", "NIB", "Moeda", "Data_Movimento", "Data_Valor", "Referencia", "Num_Operacao", "Descricao", "Tipo", "Debito", "Credito", "Valor", "Saldo", "Ficheiro_Origem"],
+    ["1-20260103-1", "BCI", "EMPRESA X", "1", "", "MZN", "2026-01-03", "2026-01-03", "691202801", "8476", "Fecho TPA", "Credito", "0.00", "3500.00", "3500.00", "64460.51", "x.xls"],
+    ["1-20260103-2", "BCI", "EMPRESA X", "1", "", "MZN", "2026-01-03", "2026-01-03", "691188496", "8476", "Comissão-Fecho TPA", "Debito", "22.75", "0.00", "-22.75", "64437.76", "x.xls"]];
+  const r = C.matrizParaMovimentos(m);
+  assert.deepEqual(r.movimentos.map((x) => x.valor), [3500, -22.75]);
+  assert.equal(r.movimentos[0].referencia, "691202801"); assert.equal(r.movimentos[1].saldo, 64437.76);
+  assert.equal(C.validar(r.movimentos, r).ok, true);
+});
+test("CSV do BCI: bloco de conta, Saldo Anterior, valores com sinal e vírgula", () => {
+  const m = [["Conta", "123", "", "", "", "", "", ""], ["Nib", "0008", "", "", "", "", "", ""], ["Saldo Anterior", "+812.700,40 MZN", "", "", "", "", "", ""], ["", "", "", "", "", "", "", ""],
+    ["Data Mov.", "Número de Documento", "Num. Oper.", "Data Valor", "Descrição", "Valor", "Saldo", "Moeda"],
+    ["01-08-2025", "304918149", "796217264", "01/08/2025", "Fecho TPA", "+22.398,00", "+835.098,40", "MZN"],
+    ["01-08-2025", "304918150", "796217264", "01/08/2025", "Comissão-Fecho TPA", "-167,99", "+834.930,41", "MZN"]];
+  const r = C.matrizParaMovimentos(m);
+  assert.deepEqual(r.movimentos.map((x) => x.valor), [22398, -167.99]);
+  assert.equal(C.validar(r.movimentos, r).saldoInicial, 812700.4);
+});
+test("CSV do ABSA: coluna de saldo sem título e linha SALDO DE ABERTURA", () => {
+  const m = [["Data", "Descrição", "Referência", "Data Valor", "Débitos", "Créditos", ""],
+    ["01/01/2026", "SALDO DE ABERTURA", "", "01/01/2026", "0.00", "191988.23", "191988.23"],
+    ["14/01/2026", "2000004894", "", "14/01/2026", "0.00", "823147.60", "1015135.83"],
+    ["16/01/2026", "BY CLG", "000000003574", "16/01/2026", "500000.00", "0.00", "515135.83"]];
+  const r = C.matrizParaMovimentos(m);
+  assert.equal(r.saldoInicial, 191988.23);
+  assert.deepEqual(r.movimentos.map((x) => [x.valor, x.saldo]), [[823147.6, 1015135.83], [-500000, 515135.83]]);
+  assert.equal(C.validar(r.movimentos, r).ok, true);
+});
+
+test("estorno: débito negativo conta como entrada; Num_Operacao não é o descritivo", () => {
+  const m = [["Data_Movimento", "Referencia", "Num_Operacao", "Descricao", "Debito", "Credito", "Saldo"],
+    ["2026-06-04", "3605", "1", "LEV CHQ 3605", "34210.00", "0.00", "678423.03"],
+    ["2026-06-04", "3605", "2", "REVERSAL: LEV CHQ 3605", "-34210.00", "0.00", "712633.03"]];
+  const r = C.matrizParaMovimentos(m);
+  assert.deepEqual(r.movimentos.map((x) => x.valor), [-34210, 34210]);
+  assert.equal(r.movimentos[1].descricao, "REVERSAL: LEV CHQ 3605");
+});

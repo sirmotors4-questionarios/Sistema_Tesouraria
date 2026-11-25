@@ -54,7 +54,9 @@
       else celula += c;
     }
     if (celula || linha.length) { linha.push(celula); out.push(linha); }
-    return out;
+    // Algumas exportações (ABSA) põem a linha inteira entre aspas quando o descritivo tem uma vírgula: voltar a separar
+    const largura = Math.max(0, ...out.slice(0, 50).map((l) => l.length));
+    return out.map((l) => (l.length === 1 && largura > 2 && l[0].includes(sep) ? lerCsv(l[0])[0] || l : l));
   }
 
   // ---------- Excel ----------
