@@ -348,7 +348,8 @@
   // Automático: pontuação ≥ limiar e sem outro candidato igualmente bom; o resto fica como sugestão para confirmar.
   function conciliar(movimentos, pagamentos, opcoes = {}) {
     const tolerancia = opcoes.toleranciaDias ?? 5, limiar = opcoes.limiarAutomatico ?? 75, maxGrupo = opcoes.maxGrupo ?? 5;
-    const debitos = movimentos.filter((m) => m.valor < 0);
+    // sentido "credito": entradas do extracto contra recibos (Recebimentos); por omissão débitos contra pagamentos
+    const debitos = movimentos.filter((m) => (opcoes.sentido === "credito" ? m.valor > 0 : m.valor < 0));
     const pares = [];
     for (const m of debitos) for (const p of pagamentos) {
       const r = pontuar(m, p, tolerancia);
@@ -435,10 +436,10 @@
       conciliados: confirmados.length, sugeridos: resultado.pares.filter((p) => p.estado === "sugerido").length,
       valorConciliado: somaMov(confirmados.map((p) => p.mov)),
       valorDebitos: debitos.reduce((s, m) => s - m.valor, 0),
-      bancoSemPar: resultado.bancoSemPar.length, valorBancoSemPar: somaMov(resultado.bancoSemPar.filter((id) => porId.get(id)?.valor < 0)),
+      bancoSemPar: resultado.bancoSemPar.length, valorBancoSemPar: somaMov(resultado.bancoSemPar),
       tesourariaSemPar: resultado.tesourariaSemPar.length,
       valorTesourariaSemPar: resultado.tesourariaSemPar.reduce((s, id) => s + (pagPorId.get(id)?.valor || 0), 0),
-      percentagem: debitos.length ? Math.round(100 * confirmados.length / debitos.length) : 0,
+      percentagem: movimentos.length ? Math.round(100 * confirmados.length / movimentos.length) : 0,
     };
   }
 

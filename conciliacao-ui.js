@@ -173,12 +173,21 @@
   }
   function executar() {
     const conta = contaSeleccionada(), tol = Math.max(0, Math.min(30, Number($("conc-tol").value) || 0));
-    estado.pagamentos = C.pagamentosParaConciliar(ctx().registos(), {idConta: conta.id, conta: conta.numero, banco: conta.banco, de: $("conc-de").value, ate: $("conc-ate").value, toleranciaDias: tol});
+    const despesas = C.pagamentosParaConciliar(ctx().registos(), {idConta: conta.id, conta: conta.numero, banco: conta.banco, de: $("conc-de").value, ate: $("conc-ate").value, toleranciaDias: tol});
+    // Entradas do extracto ↔ recibos da base mãe (Recebimentos); os recibos já ligados a um crédito ficam de fora.
+    const BD = window.TES_BASE_DADOS, BASE = window.TES_BASE;
+    let recibos = [];
+    if (BD && BASE) { const d = BD.dados(); recibos = BASE.recibosParaBanco(d.recibos, {de: $("conc-de").value, ate: $("conc-ate").value, toleranciaDias: tol, ligados: d.ligacoes.map((l) => l.ID_Recibo)}); }
+    estado.pagamentos = [...despesas, ...recibos];
     // Decisões manuais mantêm-se: confirmados saem do cálculo; rejeitados não voltam a ser sugeridos.
     const idsMov = new Set(estado.movimentos.map((m) => m.id)), idsPag = new Set(estado.pagamentos.map((p) => p.id));
     estado.confirmados = estado.confirmados.filter((p) => idsMov.has(p.mov) && p.pags.every((id) => idsPag.has(id)));
     const fixosM = new Set(estado.confirmados.map((p) => p.mov)), fixosP = new Set(estado.confirmados.flatMap((p) => p.pags));
-    const r = C.conciliar(estado.movimentos.filter((m) => !fixosM.has(m.id)), estado.pagamentos.filter((p) => !fixosP.has(p.id)), {toleranciaDias: tol});
+    const movLivres = estado.movimentos.filter((m) => !fixosM.has(m.id)), pagLivres = estado.pagamentos.filter((p) => !fixosP.has(p.id));
+    const r1 = C.conciliar(movLivres, pagLivres.filter((p) => p.tipo !== "recibo"), {toleranciaDias: tol});
+    const r2 = C.conciliar(movLivres, pagLivres.filter((p) => p.tipo === "recibo"), {toleranciaDias: tol, sentido: "credito"});
+    const pares = [...r1.pares, ...r2.pares], comPar = new Set(pares.map((p) => p.mov)), pagComPar = new Set(pares.flatMap((p) => p.pags));
+    const r = {pares, bancoSemPar: movLivres.filter((m) => !comPar.has(m.id)).map((m) => m.id), tesourariaSemPar: pagLivres.filter((p) => !pagComPar.has(p.id)).map((p) => p.id)};
     const aceites = r.pares.filter((p) => !p.pags.some((id) => estado.rejeitados.has(p.mov + "|" + id)));
     const recusados = r.pares.filter((p) => !aceites.includes(p));
     estado.resultado = {
@@ -188,7 +197,7 @@
     };
     estado.desactualizado = false;
     $("conc-executar").textContent = "Conciliar";
-    $("conc-fonte-pag").textContent = estado.pagamentos.length + " saída(s) da Tesouraria no período" + (conta.texto ? " · " + conta.texto : conta.numero ? " · conta " + conta.numero : " · todas as contas") + ".";
+    $("conc-fonte-pag").textContent = despesas.length + " saída(s) da Tesouraria e " + recibos.length + " recibo(s) por ligar no período" + (conta.texto ? " · " + conta.texto : conta.numero ? " · conta " + conta.numero : " · todas as contas") + ".";
     desenharResultado();
   }
   $("conc-executar").addEventListener("click", executar);
@@ -200,10 +209,10 @@
     if (!res) { $("conc-resumo").innerHTML = ""; $("conc-res-head").innerHTML = ""; $("conc-res-body").innerHTML = '<tr><td class="empty">Clique em «Conciliar» para comparar o extracto com as saídas da Tesouraria.</td></tr>'; return; }
     const s = C.resumo(estado.movimentos, estado.pagamentos, res);
     $("conc-resumo").innerHTML = [
-      ["Conciliado", s.conciliados + " de " + s.debitos + " débitos", s.percentagem + "% · " + mt(s.valorConciliado) + " MT"],
+      ["Conciliado", s.conciliados + " de " + s.movimentos + " movimentos", s.percentagem + "% · " + mt(s.valorConciliado) + " MT"],
       ["Por confirmar", String(s.sugeridos), "sugestões a rever"],
-      ["Banco sem correspondência", String(s.bancoSemPar), mt(s.valorBancoSemPar) + " MT em débitos"],
-      ["Tesouraria sem correspondência", String(s.tesourariaSemPar), mt(s.valorTesourariaSemPar) + " MT pagos sem movimento"],
+      ["Banco sem correspondência", String(s.bancoSemPar), mt(s.valorBancoSemPar) + " MT"],
+      ["Tesouraria sem correspondência", String(s.tesourariaSemPar), mt(s.valorTesourariaSemPar) + " MT sem movimento"],
     ].map(([t, v, d]) => '<div class="metric"><small>' + esc(t) + "</small><strong>" + esc(v) + "</strong><span>" + esc(d) + "</span></div>").join("") +
       (estado.desactualizado ? '<p class="conc-aviso">Os movimentos ou a conta mudaram. Clique em «Conciliar novamente».</p>' : "");
     document.querySelectorAll("[data-conc-tab]").forEach((b) => {
@@ -213,7 +222,7 @@
     });
     const M = porMov(), P = porPag();
     const descPags = (ids) => ids.map((id) => P.get(id)).filter(Boolean);
-    const colPar = '<tr><th>Data banco</th><th>Descritivo banco</th><th class="num">Valor</th><th>Requisição</th><th>Fornecedor</th><th>Despacho / Ref.</th><th>Saída</th><th>Motivos</th><th></th></tr>';
+    const colPar = '<tr><th>Data banco</th><th>Descritivo banco</th><th class="num">Valor</th><th>Requisição / recibo</th><th>Fornecedor / cliente</th><th>Despacho / Ref.</th><th>Data</th><th>Motivos</th><th></th></tr>';
     const linhaPar = (p, botoes) => {
       const m = M.get(p.mov), ps = descPags(p.pags);
       return '<tr data-mov="' + esc(p.mov) + '"><td>' + esc(dataPt(m?.data)) + '</td><td class="conc-wrap">' + esc(m?.descricao) + '</td><td class="num">' + esc(mt(Math.abs(m?.valor || 0))) + "</td>" +
@@ -230,11 +239,12 @@
       head = colPar;
       body = res.pares.filter((p) => p.estado === "sugerido").map((p) => linhaPar(p, '<button type="button" class="btn btn-primary conc-mini" data-res="confirmar">Confirmar</button><button type="button" class="text-btn" data-res="rejeitar">Rejeitar</button>')).join("");
     } else if (estado.tab === "banco") {
+      const temRecibos = estado.pagamentos.some((p) => p.tipo === "recibo");
       head = '<tr><th>Data</th><th>Descritivo</th><th>Referência</th><th class="num">Débito</th><th class="num">Crédito</th><th></th></tr>';
       body = res.bancoSemPar.map((id) => M.get(id)).filter(Boolean).map((m) => '<tr data-mov="' + esc(m.id) + '"><td>' + esc(dataPt(m.data)) + '</td><td class="conc-wrap">' + esc(m.descricao) + "</td><td>" + esc(m.referencia) + '</td><td class="num">' + (m.valor < 0 ? esc(mt(-m.valor)) : "") + '</td><td class="num">' + (m.valor > 0 ? esc(mt(m.valor)) : "") + "</td><td>" +
-        (m.valor < 0 ? '<button type="button" class="text-btn" data-res="associar">Associar…</button>' : '<span class="note">Recebimentos ainda não integrados</span>') + "</td></tr>").join("");
+        (m.valor < 0 || temRecibos ? '<button type="button" class="text-btn" data-res="associar">Associar…</button>' : '<span class="note">Sem recibos na base mãe</span>') + "</td></tr>").join("");
     } else {
-      head = '<tr><th>Requisição</th><th>Fornecedor</th><th class="num">Valor</th><th>Estado</th><th>Saída</th><th>Despacho</th><th>Ref. pagamento</th><th>Conta</th></tr>';
+      head = '<tr><th>Requisição / recibo</th><th>Fornecedor / cliente</th><th class="num">Valor</th><th>Estado</th><th>Data</th><th>Despacho</th><th>Referência</th><th>Conta</th></tr>';
       body = res.tesourariaSemPar.map((id) => P.get(id)).filter(Boolean).map((p) => "<tr><td>" + esc(p.requisicao) + '</td><td class="conc-wrap">' + esc(p.fornecedor) + '</td><td class="num">' + esc(mt(p.valor)) + "</td><td>" + esc(p.estado) + "</td><td>" + esc(dataPt(p.data || p.dataPrevista)) + "</td><td>" + esc(p.despacho) + "</td><td>" + esc(p.referencia) + "</td><td>" + esc([p.banco, p.conta].filter(Boolean).join(" · ")) + "</td></tr>").join("");
     }
     $("conc-res-head").innerHTML = head;
@@ -266,7 +276,7 @@
   function abrirAssociar(mov) {
     const m = porMov().get(mov); if (!m) return;
     associarMov = m;
-    $("conc-assoc-mov").textContent = dataPt(m.data) + " · " + m.descricao + " · " + mt(-m.valor) + " MT";
+    $("conc-assoc-mov").textContent = dataPt(m.data) + " · " + m.descricao + " · " + mt(Math.abs(m.valor)) + " MT" + (m.valor > 0 ? " (entrada: associar a recibos)" : "");
     $("conc-assoc-filtro").value = "";
     listarAssociar();
     $("conc-associar").showModal();
@@ -274,18 +284,19 @@
   function listarAssociar() {
     const P = porPag(), alvo = Math.abs(associarMov.valor), f = $("conc-assoc-filtro").value.trim().toLowerCase();
     const marcados = new Set([...document.querySelectorAll("#conc-assoc-lista input:checked")].map((i) => i.value));
-    const livres = estado.resultado.tesourariaSemPar.map((id) => P.get(id)).filter(Boolean)
+    const credito = associarMov.valor > 0;
+    const livres = estado.resultado.tesourariaSemPar.map((id) => P.get(id)).filter((p) => p && (p.tipo === "recibo") === credito)
       .filter((p) => !f || [p.requisicao, p.fornecedor, p.despacho, p.referencia, mt(p.valor), String(p.valor)].join(" ").toLowerCase().includes(f))
       .sort((a, b) => Math.abs(a.valor - alvo) - Math.abs(b.valor - alvo));
     $("conc-assoc-lista").innerHTML = livres.map((p) => '<label class="conc-assoc-item"><input type="checkbox" value="' + esc(p.id) + '"' + (marcados.has(p.id) ? " checked" : "") + "><span><b>" + esc(mt(p.valor)) + " MT</b> · " + esc(p.requisicao) + " · " + esc(p.fornecedor) + "<br><small>" + esc(dataPt(p.data || p.dataPrevista)) + (p.despacho ? " · despacho " + esc(p.despacho) : "") + (p.referencia ? " · ref. " + esc(p.referencia) : "") + "</small></span></label>").join("") ||
-      '<p class="note">Não há pagamentos sem correspondência neste período. Alargue as datas ou a tolerância e concilie novamente.</p>';
+      '<p class="note">Não há ' + (credito ? "recibos" : "pagamentos") + ' sem correspondência neste período. Alargue as datas ou a tolerância e concilie novamente.</p>';
     somaAssociar();
   }
   function somaAssociar() {
     const P = porPag(), ids = [...document.querySelectorAll("#conc-assoc-lista input:checked")].map((i) => i.value);
     const soma = ids.reduce((s, id) => s + (P.get(id)?.valor || 0), 0), alvo = Math.abs(associarMov.valor);
     const igual = Math.round(soma * 100) === Math.round(alvo * 100);
-    $("conc-assoc-soma").textContent = ids.length ? "Seleccionado: " + mt(soma) + " MT de " + mt(alvo) + " MT" + (igual ? " ✓" : " — a soma tem de ser igual ao débito") : "Seleccione um ou mais pagamentos cuja soma seja igual ao débito.";
+    $("conc-assoc-soma").textContent = ids.length ? "Seleccionado: " + mt(soma) + " MT de " + mt(alvo) + " MT" + (igual ? " ✓" : " — a soma tem de ser igual ao movimento") : "Seleccione um ou mais documentos cuja soma seja igual ao movimento.";
     $("conc-assoc-ok").disabled = !igual;
   }
   $("conc-assoc-lista").addEventListener("change", somaAssociar);
@@ -311,6 +322,24 @@
     if (estado.desactualizado) { progresso("Os movimentos mudaram desde a última conciliação: clique em «Conciliar novamente» antes de exportar.", "conc-erro"); return null; }
     return C.relatorio(estado.movimentos, estado.pagamentos, estado.resultado);
   }
+  // Ligações recibo ↔ entrada do banco confirmadas: gravadas na base mãe (tbl_RecebimentosBanco)
+  $("conc-gravar-rec").addEventListener("click", async () => {
+    if (!estado.resultado || estado.desactualizado) { progresso("Concilie antes de gravar.", "conc-erro"); return; }
+    const M = porMov(), P = porPag(), conta = contaSeleccionada(), agora = new Date().toISOString();
+    const ligacoes = estado.resultado.pares.filter((p) => p.estado !== "sugerido" && p.pags.every((id) => P.get(id)?.tipo === "recibo")).flatMap((p) => {
+      const m = M.get(p.mov);
+      return p.pags.map((id) => ({ID_Ligacao: P.get(id).idRecibo + "@" + m.data + "|" + Math.round(Math.abs(m.valor) * 100), ID_Recibo: P.get(id).idRecibo, Data_Banco: m.data,
+        Valor: P.get(id).valor, Descritivo_Banco: m.descricao.slice(0, 250), Conta: conta.numero || conta.id || "", Utilizador: "", Data: agora}));
+    });
+    if (!ligacoes.length) { progresso("Não há entradas do banco conciliadas com recibos (confirme as sugestões primeiro).", "conc-erro"); return; }
+    const b = $("conc-gravar-rec"); b.disabled = true;
+    try {
+      const r = await ctx().escrever({operacao: "base.ligar_banco", id_pedido: crypto.randomUUID(), ligacoes});
+      window.TES_BASE_DADOS?.registarLigacoes(ligacoes);
+      progresso(String(r.mensagem || ligacoes.length + " ligação(ões) gravada(s).") + " Os recibos ligados deixam de aparecer como «por ligar».", "conc-ok");
+    } catch (e) { progresso(e.message, "conc-erro"); }
+    finally { b.disabled = false; }
+  });
   $("conc-csv").addEventListener("click", () => {
     const linhas = linhasRelatorio(); if (!linhas) return;
     const url = URL.createObjectURL(new Blob([C.csv(linhas)], {type: "text/csv;charset=utf-8"}));

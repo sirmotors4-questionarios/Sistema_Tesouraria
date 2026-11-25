@@ -137,3 +137,24 @@
 .conc-tabela td{min-width:0}
 .conc-tabela th,.conc-tabela td{padding:10px 8px}
 #conc-res-body td.conc-wrap{max-width:200px;min-width:140px}
+/* ---------- Base mãe: Facturação, Recebimentos, Cobranças ---------- */
+.bm-grid{grid-template-columns:minmax(220px,1fr) 2fr;align-items:stretch}
+.bm-drop{padding:18px 16px}
+.bm-pesquisa,.bm-filtro{width:auto;min-width:220px;padding:8px 10px}
+.bm-filtro{min-width:160px}
+.bm-tabela{max-height:560px}
+.bm-tabela td{min-width:0}
+.bm-tabela th,.bm-tabela td{padding:10px 8px}
+.bm-tabela .num{text-align:right}
+.bm-cards{grid-template-columns:repeat(4,minmax(0,1fr));margin:14px 0}
+.bm-accoes{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+.badge.bm-vencido{background:#fdecec;color:#b3261e}
+.bm-vencido-txt{color:#b3261e;font-weight:600}
+.bm-atraso{color:#b3261e;font-weight:600}
+.bm-cliente{cursor:pointer}
+.bm-cliente:hover td{background:#fafbfc}
+.bm-detalhe>td{background:#f8fafc;padding:8px 14px 14px!important}
+.bm-detalhe table{background:#fff;border:1px solid #e8edf2;border-radius:8px}
+.bm-ref{display:flex;flex-direction:column;font-size:12px;color:#738092;gap:4px}
+.bm-ref input{padding:8px 10px}
+@media (max-width:900px){.bm-grid,.bm-cards{grid-template-columns:1fr}}

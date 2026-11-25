@@ -48,7 +48,7 @@ despesa o tem — despachos V9 — senão pelo número de conta) e com data de s
 - **N:1** (vários pagamentos num só débito, ex. lote de salários): soma exacta de 2 a 5 pagamentos próximos; sempre sugestão.
 - **Associação manual** de um débito a um ou mais pagamentos cuja soma seja igual ao débito.
 - Decisões (confirmar, rejeitar, desfazer, associar) mantêm-se ao conciliar novamente.
-- Créditos aparecem como «Recebimentos ainda não integrados» (Recebimentos está suspenso até à integração PRIMAVERA).
+- **Créditos ↔ recibos**: as entradas do extracto são emparelhadas com os recibos da base mãe (ver `docs/BASE_MAE_PRIMAVERA.md`); «Gravar ligações dos recibos» grava as ligações confirmadas em `tbl_RecebimentosBanco`.
 
 ## Relatório
 CSV (`;`, decimais com vírgula, protegido contra fórmulas) ou Excel: uma linha por movimento do banco (estado,
