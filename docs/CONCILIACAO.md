@@ -1,7 +1,8 @@
 # Conciliação Bancária — módulo (fase 1: leitura, revisão e relatório)
 
 **Estado:** activo no menu *Bancos e Controlo → Conciliação Bancária*. Lê o extracto, emparelha-o com as saídas da
-Tesouraria e exporta o relatório. **Não grava no Excel**: a marcação de pagamentos como conciliados é a fase 2 (abaixo).
+Tesouraria e exporta o relatório. A gravação do extracto e da conciliação na base mãe (pelo Power Automate) está descrita em
+[BANCOS_EXTRATOS.md](BANCOS_EXTRATOS.md).
 
 ## Ficheiros
 | Ficheiro | Papel |

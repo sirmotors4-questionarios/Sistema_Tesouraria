@@ -158,3 +158,11 @@
 .bm-ref{display:flex;flex-direction:column;font-size:12px;color:#738092;gap:4px}
 .bm-ref input{padding:8px 10px}
 @media (max-width:900px){.bm-grid,.bm-cards{grid-template-columns:1fr}}
+
+/* Bancos: gravação do extracto na base mãe */
+.conc-base{margin:12px 0;padding:12px 14px;border:1px solid var(--line,#dfe3ea);border-left:4px solid var(--primary,#1f4e79);border-radius:10px;background:var(--panel-soft,#f7f9fc)}
+.conc-base-info{display:grid;gap:4px;font-size:.92rem;margin-bottom:8px}
+.conc-base-info .note{font-size:.85rem}
+.conc-base .conc-linha{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:6px 0}
+.conc-base label input:not([type=checkbox]){margin-left:6px;max-width:140px}
+.conc-base .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
