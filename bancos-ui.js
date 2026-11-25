@@ -58,7 +58,7 @@
     }).join("") || '<tr><td colspan="10" class="empty">Nenhum extracto importado.</td></tr>';
     $("bk-nota").textContent = !ctx.ligado() ? "Modo demonstração: sem ligação à base mãe."
       : B.consultaTemBase() ? "Fonte: consulta do Power Automate (base mãe no SharePoint) e gravações desta sessão."
-      : "A consulta do Power Automate não devolveu tbl_Extratos / tbl_MovimentosBancarios: só aparecem as gravações desta sessão. Ver docs/BANCOS_EXTRATOS.md (passo 3.4).";
+      : "A consulta do Power Automate não devolveu tbl_Extratos / tbl_MovimentosBancarios: só aparecem as gravações desta sessão. Indique o endpoint do TES_BASE_MAE em «Conectar base de dados» (docs/BANCOS_EXTRATOS.md, secção 3).";
     $("bk-modo").textContent = ctx.escritaDisponivel() ? "Base mãe · gravação activa" : ctx.ligado() ? "Base mãe · só leitura" : "Modo demonstração";
   }
   $("bk-pesquisa").addEventListener("input", desenhar);

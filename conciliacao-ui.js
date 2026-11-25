@@ -24,7 +24,7 @@
   const movimentosBase = () => [...T("tbl_MovimentosBancarios"), ...sessao.movimentos];
   const idsBase = () => new Set(movimentosBase().map((l) => String(l.ID_Movimento ?? "").trim()).filter(Boolean));
   const conciliacoesBase = () => [...T("tbl_ConciliacaoBancaria").filter((l) => !sessao.desfeitos.has(String(l.ID_Movimento))), ...sessao.conciliacoes];
-  const consultaTemBase = () => ctx().ligado() && (T("tbl_MovimentosBancarios").length > 0 || T("tbl_Extratos").length > 0);
+  const consultaTemBase = () => ctx().ligado() && (!!ctx().temTabela?.("tbl_MovimentosBancarios") || T("tbl_MovimentosBancarios").length > 0 || T("tbl_Extratos").length > 0);
   const escrita = () => !!(ctx().escritaDisponivel && ctx().escritaDisponivel());
   const avisarBancos = () => document.dispatchEvent(new Event("tes:bancos"));
   window.TES_BANCOS = Object.freeze({extratos: extratosBase, movimentos: movimentosBase, conciliacoes: conciliacoesBase, consultaTemBase});
@@ -260,7 +260,7 @@
     const conc = new Set(conciliacoesBase().map((l) => String(l.ID_Movimento)));
     const movs = C.movimentosDaBase(movimentosBase(), {conta: c.numero, excluir: conc});
     if (!movs.length) {
-      progresso(movimentosBase().length ? "Não há movimentos por conciliar da conta " + c.numero + " na base mãe." : "A consulta do Power Automate não devolveu a tabela tbl_MovimentosBancarios (ver docs/BANCOS_EXTRATOS.md, passo 3.4) ou ainda não foram gravados extractos.", "conc-erro");
+      progresso(movimentosBase().length ? "Não há movimentos por conciliar da conta " + c.numero + " na base mãe." : "A consulta do Power Automate não devolveu a tabela tbl_MovimentosBancarios ou ainda não foram gravados extractos. Indique o endpoint do TES_BASE_MAE em «Conectar base de dados» (docs/BANCOS_EXTRATOS.md, secção 3).", "conc-erro");
       return;
     }
     reiniciar(false);

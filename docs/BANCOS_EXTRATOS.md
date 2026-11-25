@@ -28,7 +28,7 @@ Esta chave foi validada com os extractos reais:
 `BCI_2308710007_2026-01-08_2026-10-31.csv`.
 - O Office Script atribui o nome final. Se outro ficheiro, com conteúdo diferente, da mesma conta e período já usou o nome, recebe `_v2`, `_v3`…
 - O ficheiro original não é alterado. O nome padronizado fica registado em `tbl_Extratos`.
-- O ficheiro pode ser guardado no SharePoint com esse nome pelo fluxo (passo 3.3) ou descarregado pelo botão «Descarregar com nome padronizado».
+- O ficheiro pode ser guardado no SharePoint com esse nome pelo fluxo TES_BASE_MAE (secção 3) ou descarregado pelo botão «Descarregar com nome padronizado».
 
 ## 2. Tabelas criadas pelo script na primeira gravação (folhas `BM_*`)
 
@@ -46,77 +46,79 @@ sem nenhum dos dois pode ser conciliada no ecrã, mas não fica gravada.
 
 ## 3. Configuração no Power Automate (uma vez)
 
+A integração é feita por um fluxo próprio, **TES_BASE_MAE**, entregue como pacote de importação. O pacote foi feito a
+partir do export do fluxo `FIN_IA_CONCILIACAO`, por isso usa o mesmo site, a mesma biblioteca e a mesma ligação do
+Excel. O fluxo recebe os pedidos `base.*` e `banco.*` do site, corre o Office Script e, se for pedido, guarda o
+extracto original no SharePoint. As despesas continuam no fluxo V9, que não é alterado.
+
+O pacote não está neste repositório público, porque contém os identificadores do site e da biblioteca. Está na pasta
+`05_Scripts/Power Automate` do SharePoint da Tesouraria, junto com o script.
+
 ### 3.1 Office Script
-1. Abra o livro *Sistema de Tesouraria 1.2.xlsx* no SharePoint.
-2. Vá a **Automatizar**, abra o script **TesourariaBaseMae** (ou crie-o) e substitua o código pelo de
-   `office-scripts/TesourariaBaseMae.ts`.
-3. Guarde o script **com o mesmo nome**.
+1. Abra *Sistema de Tesouraria 1.2.xlsx* no Excel para a Web e vá a **Automatizar → Novo script**.
+2. Cole `office-scripts/TesourariaBaseMae.ts` e guarde com o nome **TesourariaBaseMae**. Se o script já existir,
+   substitua o código.
 
-O script mantém as operações `base.*` da Facturação e acrescenta as operações `banco.*`.
+### 3.2 Importar o fluxo TES_BASE_MAE
+1. Em make.powerautomate.com, vá a **Os meus fluxos → Importar → Importar pacote (legado)** e escolha
+   `TES_BASE_MAE_pacote.zip`.
+2. Em **Configuração da importação**, escolha **Criar como novo**.
+3. Em **Recursos relacionados**, escolha as ligações:
+   - **Excel Online (Business)**: a mesma do FIN_IA_CONCILIACAO;
+   - **SharePoint**: uma ligação existente ou uma nova.
+4. Clique em **Importar** e depois abra o fluxo para editar.
+5. Na acção **Executar script**, confirme:
+   - Localização: *SIR MOTORS INTERNATIONAL*;
+   - Biblioteca: *Documentos*;
+   - Ficheiro: `General/Tesouraria e Facturação/01_Bases_de_Dados/Sistema de Tesouraria 1.2.xlsx`;
+   - Script: **TesourariaBaseMae** (o pacote traz `SELECCIONAR_TesourariaBaseMae` como marcador; escolha o script na lista);
+   - Parâmetro `pedido`: deve ficar `string(outputs('Pedido'))`.
+6. Na acção **Criar ficheiro**, confirme o site `https://sirmotos.sharepoint.com/sites/SIRMOTORSINTERNATIONAL`.
+   A pasta é `/Documentos Compartilhados/General/Tesouraria e Facturação/` mais a pasta enviada pelo site, por exemplo
+   `02_Importacoes/Bancos/BCI`.
+7. **Guarde** o fluxo. Depois abra o accionador **Quando um pedido HTTP é recebido** e copie o **URL HTTP POST**.
+8. No site, em **Conectar base de dados**, cole esse URL em **Endpoint HTTPS do TES_BASE_MAE**. Fica guardado só nesse
+   navegador e nunca vai para o GitHub.
 
-### 3.2 Fluxo de escrita V9 (o mesmo endpoint já configurado no site)
-Acrescente a condição antes dos ramos das despesas. Se já existir a condição `base.`, alargue-a:
+Notas sobre o fluxo:
+- O accionador aceita **Qualquer pessoa** (URL com `sig=`), como os outros fluxos do site. Se a política do tenant o
+  impedir, peça ao administrador uma excepção para este fluxo.
+- **Uma execução de cada vez** (simultaneidade 1): a verificação de duplicados nunca corre em paralelo, nem com dois
+  utilizadores a importar ao mesmo tempo.
+- O URL com `sig=` dá acesso ao fluxo. Use-o só em dispositivos de confiança e, se for exposto, regenere-o.
 
+### 3.3 O que o fluxo faz
 ```
-or(startsWith(triggerBody()?['operacao'], 'base.'), startsWith(triggerBody()?['operacao'], 'banco.'))
+Quando um pedido HTTP é recebido (concorrência 1)
+└─ Validar_Operacao: a operação começa por «banco.» ou «base.»?
+   ├─ Sim
+   │  ├─ Pedido = removeProperty(corpo, 'ficheiro')      → o ficheiro original nunca vai para o script
+   │  ├─ Executar script TesourariaBaseMae (pedido)
+   │  ├─ Guardar_Ficheiro: sucesso, importar_extrato e ficheiro enviado?
+   │  │  └─ Criar ficheiro (SharePoint) com o nome_padronizado devolvido pelo script
+   │  ├─ Resposta 200 com o resultado do script (+ aviso se o ficheiro não foi guardado)
+   │  └─ Resposta_Erro_Script 502 se o script falhar ou exceder o tempo
+   └─ Não → Resposta 400 OPERACAO_NAO_SUPORTADA
 ```
+- **Consultar:** ao ligar, o site envia `base.consultar` e o script devolve as tabelas da base mãe, em formato
+  compacto. Não é preciso mexer no fluxo de consulta das despesas.
+- **Ficheiro original:** só é criado quando o script aceitou o extracto. Um ficheiro repetido é recusado pelo script e
+  não é guardado de novo.
 
-No ramo **Sim**:
-1. **Compor** (nome `Pedido`), com a expressão `removeProperty(triggerBody(), 'ficheiro')`.
-   O ficheiro original nunca vai para o script.
-2. **Executar script** (Excel Online Business):
-   - Localização: o site *SIR Comercio Internacional*;
-   - Biblioteca: Documentos;
-   - Ficheiro: *Sistema de Tesouraria 1.2.xlsx*;
-   - Script: *TesourariaBaseMae*;
-   - Parâmetro `pedido`: `string(outputs('Pedido'))`.
-3. **Resposta**: estado 200, corpo `outputs('Executar_script')?['body/result']`.
-   O corpo traz `sucesso`, `codigo`, `mensagem`, `novos`, `duplicados`, `estado`, `ligacoes` e `nome_padronizado`.
-   O site só considera gravado quando `sucesso` é `true`.
+### 3.4 Alternativa sem fluxo novo
+Se preferir usar o fluxo V9:
+1. Acrescente-lhe o ramo da secção 3.3. A condição é `or(startsWith(...,'base.'), startsWith(...,'banco.'))`.
+2. Deixe vazio o campo do TES_BASE_MAE no site: as operações da base mãe passam a ir para o endpoint V9.
+3. Para o site ver o histórico, o fluxo de consulta tem de devolver `tbl_Extratos`, `tbl_MovimentosBancarios` e
+   `tbl_ConciliacaoBancaria`. Use *Listar linhas* com paginação, ou chame `base.consultar`.
 
-### 3.3 Guardar o ficheiro original no SharePoint (opcional, recomendado)
-Esta parte só é usada quando o utilizador marca «Guardar também o ficheiro no SharePoint». O site envia então, no
-último lote do extracto, `ficheiro: {nome, pasta, conteudo_base64}`, com um máximo de 10 MB por ficheiro.
-
-Depois de **Executar script**, acrescente uma condição:
-
-```
-and(equals(outputs('Executar_script')?['body/result/sucesso'], true), not(empty(triggerBody()?['ficheiro'])))
-```
-
-No ramo **Sim**, use **Criar ficheiro** (SharePoint):
-- Endereço do site: *SIR Comercio Internacional*;
-- Caminho da pasta: `/Shared Documents/General/Tesouraria e Facturação/` seguido de `triggerBody()?['ficheiro']?['pasta']`.
-  A pasta fica, por exemplo, `02_Importacoes/Bancos/BCI`; confirme o caminho da biblioteca no seu site;
-- Nome do ficheiro: `outputs('Executar_script')?['body/result/nome_padronizado']`.
-  Use o nome devolvido pelo script e não o que vem do site: o script já garantiu que o nome é único;
-- Conteúdo do ficheiro: `base64ToBinary(triggerBody()?['ficheiro']?['conteudo_base64'])`.
-
-Só é criado quando o script aceitou o extracto: um ficheiro repetido é recusado pelo script e não é guardado de novo.
-
-### 3.4 Fluxo de consulta (`TES_API_Consultar`)
-1. Acrescente **Listar linhas presentes numa tabela** para `tbl_Extratos`, `tbl_MovimentosBancarios` e
-   `tbl_ConciliacaoBancaria`.
-   - Ative a **paginação**, com um limite acima do nº de movimentos; hoje são cerca de 6 800 nas 8 contas.
-   - Use o formato de data **número de série**, como nas outras tabelas.
-2. Inclua as três tabelas em `tabelas` (`[{"tabela":"tbl_MovimentosBancarios","linhas":[...]}]`).
-
-As tabelas só existem depois da primeira gravação. Grave o primeiro extracto e depois acrescente estas acções.
-
-Sem estas tabelas na consulta, o site funciona na mesma: o script verifica os duplicados ao gravar. Perdem-se três
-coisas:
-- o aviso prévio «já na base»;
-- a vista «Bancos e Extractos» com o histórico;
-- a opção «Usar movimentos já gravados na base mãe».
-
-### 3.5 Limites e permissões
-- O site envia os movimentos em lotes de 1 000 e as conciliações em lotes de 1 000. Cada chamada fica bem abaixo do
-  limite de 120 s do *Executar script*.
-- Um extracto de 5 008 movimentos (ACCESS POS) gera 6 chamadas. Conte com isto no limite diário de execuções de
-  scripts por utilizador.
-- Se um lote falhar a meio, repetir é seguro: os lotes já gravados não duplicam. O extracto fica `Parcial` até ao
-  último lote.
-- Limite as operações `banco.*` e `base.*` aos perfis financeiros autorizados.
+### 3.5 Limites
+- Os movimentos e as conciliações são enviados em lotes de 1 000. Cada chamada fica bem abaixo do limite de 120 s do
+  *Executar script*.
+- Um extracto de 5 008 movimentos (ACCESS POS) gera 6 execuções, a contar para o limite diário de scripts por utilizador.
+- Se um lote falhar, repetir é seguro: o extracto fica `Parcial` até ao último lote.
+- `base.consultar` devolve todas as tabelas de uma vez. Hoje são cerca de 7 000 movimentos, perto de 1–2 MB. Com
+  vários anos de movimentos será preciso filtrar por período.
 
 ## 4. Utilização
 

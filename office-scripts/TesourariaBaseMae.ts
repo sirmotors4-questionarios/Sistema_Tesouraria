@@ -18,6 +18,8 @@
  *                       ligado a um movimento e um movimento só a um conjunto de documentos (cuja soma = valor do banco).
  *                       Repetir o mesmo pedido não duplica. Os recibos também ficam em tbl_RecebimentosBanco.
  *  banco.desfazer     — remove a conciliação dos movimentos indicados (para corrigir uma ligação errada).
+ *  base.consultar     — devolve as tabelas da base mãe (colunas + linhas em matriz, compacto) para o site. Tabelas
+ *                       ainda não criadas vêm vazias. Só leitura: não cria nem altera nada.
  *
  * Cria as tabelas na primeira utilização (folhas BM_*). Valida tudo antes de escrever; não apaga facturas nem recibos.
  * Desempenho (limite de 120 s do Power Automate): leituras em bloco, sem leituras por linha.
@@ -27,7 +29,9 @@ interface Resultado {
   novos: number; alterados: number; liquidacoes: number; ligacoes: number; erros: string[]; ms: number;
   duplicados: number; estado: string;
   nome_padronizado: string; // banco.importar_extrato: nome final do ficheiro (o fluxo usa-o para o guardar no SharePoint)
+  tabelas: TabelaLida[];     // base.consultar
 }
+interface TabelaLida { tabela: string; colunas: string[]; linhas: Valor[][]; }
 type Valor = string | number | boolean;
 type Registo = Record<string, unknown>;
 
@@ -74,7 +78,7 @@ function celula(coluna: string, v: unknown): Valor {
 
 function main(workbook: ExcelScript.Workbook, pedido: string): Resultado {
   const t0 = Date.now();
-  const r: Resultado = { sucesso: false, codigo: "", mensagem: "", operacao: "", novos: 0, alterados: 0, liquidacoes: 0, ligacoes: 0, erros: [], ms: 0, duplicados: 0, estado: "", nome_padronizado: "" };
+  const r: Resultado = { sucesso: false, codigo: "", mensagem: "", operacao: "", novos: 0, alterados: 0, liquidacoes: 0, ligacoes: 0, erros: [], ms: 0, duplicados: 0, estado: "", nome_padronizado: "", tabelas: [] };
   const fim = (codigo: string, mensagem: string) => { r.codigo = codigo; r.mensagem = mensagem; r.ms = Date.now() - t0; return r; };
 
   let p: Registo;
@@ -146,6 +150,21 @@ function main(workbook: ExcelScript.Workbook, pedido: string): Resultado {
     r.sucesso = true;
     return fim("OK", r.ligacoes + " ligação(ões) gravada(s).");
   }
+  if (r.operacao === "base.consultar") {
+    const pedidas = Array.isArray(p.tabelas) && (p.tabelas as unknown[]).length ? (p.tabelas as unknown[]).map(texto) : Object.keys(TABELAS);
+    for (const nome of pedidas) {
+      if (!TABELAS[nome]) return fim("PEDIDO_INVALIDO", "Tabela desconhecida: " + nome);
+      const t = workbook.getTable(nome);
+      if (!t) { r.tabelas.push({ tabela: nome, colunas: TABELAS[nome].colunas.slice(), linhas: [] }); continue; }
+      const colunas = cabecalho(t);
+      const linhas = soLinhaVazia(t) || t.getRowCount() === 0 ? [] : (t.getRangeBetweenHeaderAndTotal().getValues() as Valor[][]).filter((l) => l.some((v) => texto(v) !== ""));
+      r.tabelas.push({ tabela: nome, colunas, linhas });
+      r.novos += linhas.length;
+    }
+    r.sucesso = true;
+    return fim("OK", r.tabelas.length + " tabela(s), " + r.novos + " linha(s).");
+  }
+
   if (r.operacao === "banco.importar_extrato") {
     const ext = (p.extrato ?? {}) as Registo, movs = p.movimentos as Registo[], final = p.final === true;
     const agora = new Date().toISOString();
