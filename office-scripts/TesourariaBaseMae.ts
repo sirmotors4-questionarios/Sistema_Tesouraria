@@ -36,7 +36,8 @@ interface Resultado {
   novos: number; alterados: number; liquidacoes: number; ligacoes: number; erros: string[]; ms: number;
   duplicados: number; estado: string;
   nome_padronizado: string; // banco.importar_extrato: nome final do ficheiro (o fluxo usa-o para o guardar no SharePoint)
-  tabelas: TabelaLida[];     // base.consultar
+  tabelas_json: string;      // base.consultar: [{tabela, colunas, linhas}] em JSON (o Office Scripts não aceita
+                             // matrizes de tipos mistos no valor devolvido)
 }
 interface TabelaLida { tabela: string; colunas: string[]; linhas: Valor[][]; }
 type Valor = string | number | boolean;
@@ -87,7 +88,7 @@ function celula(coluna: string, v: unknown): Valor {
 function main(workbook: ExcelScript.Workbook, pedido: string): Resultado {
   const t0 = Date.now();
   ABERTAS.clear();
-  const r: Resultado = { sucesso: false, codigo: "", mensagem: "", operacao: "", novos: 0, alterados: 0, liquidacoes: 0, ligacoes: 0, erros: [], ms: 0, duplicados: 0, estado: "", nome_padronizado: "", tabelas: [] };
+  const r: Resultado = { sucesso: false, codigo: "", mensagem: "", operacao: "", novos: 0, alterados: 0, liquidacoes: 0, ligacoes: 0, erros: [], ms: 0, duplicados: 0, estado: "", nome_padronizado: "", tabelas_json: "" };
   let reserva: ExcelScript.Range | null = null;
   const fim = (codigo: string, mensagem: string) => {
     if (reserva) { reserva.setValues([["", 0, ""]]); reserva = null; } // liberta o livro (escrita, sem leitura)
@@ -177,19 +178,21 @@ function main(workbook: ExcelScript.Workbook, pedido: string): Resultado {
     return fim("OK", r.ligacoes + " ligação(ões) gravada(s).");
   }
   if (r.operacao === "base.consultar") {
-    const pedidas = Array.isArray(p.tabelas) && (p.tabelas as unknown[]).length ? (p.tabelas as unknown[]).map(texto) : Object.keys(TABELAS);
+    const pedidas = Array.isArray(p.tabelas) && (p.tabelas as unknown[]).length ? (p.tabelas as unknown[]).map((x) => texto(x)) : Object.keys(TABELAS);
+    const tabelas: TabelaLida[] = [];
     for (const nome of pedidas) {
       if (!TABELAS[nome]) return fim("PEDIDO_INVALIDO", "Tabela desconhecida: " + nome);
       const t = workbook.getTable(nome);
-      if (!t) { r.tabelas.push({ tabela: nome, colunas: TABELAS[nome].colunas.slice(), linhas: [] }); continue; }
+      if (!t) { tabelas.push({ tabela: nome, colunas: TABELAS[nome].colunas.slice(), linhas: [] }); continue; }
       const tudo = t.getRange().getValues() as Valor[][]; // cabeçalho + corpo numa só leitura
       const colunas = tudo[0].map((v) => String(v));
       const linhas = tudo.slice(1).filter((l) => l.some((v) => texto(v) !== ""));
-      r.tabelas.push({ tabela: nome, colunas, linhas });
+      tabelas.push({ tabela: nome, colunas, linhas });
       r.novos += linhas.length;
     }
+    r.tabelas_json = JSON.stringify(tabelas);
     r.sucesso = true;
-    return fim("OK", r.tabelas.length + " tabela(s), " + r.novos + " linha(s).");
+    return fim("OK", tabelas.length + " tabela(s), " + r.novos + " linha(s).");
   }
 
   if (r.operacao === "banco.importar_extrato") {
@@ -310,7 +313,7 @@ function main(workbook: ExcelScript.Workbook, pedido: string): Resultado {
   if (r.operacao === "banco.desfazer") {
     const movs = (p.movimentos ?? []) as unknown[];
     if (!Array.isArray(movs) || !movs.length || movs.length > LIMITE) return fim("PEDIDO_INVALIDO", "movimentos deve ser uma lista de ID_Movimento (1 a " + LIMITE + ").");
-    const alvo = new Set(movs.map(texto));
+    const alvo = new Set(movs.map((x) => texto(x)));
     const tc = abrir(workbook, "tbl_ConciliacaoBancaria", false);
     if (typeof tc === "string") return fim("ESTRUTURA", tc);
     if (tc) {
@@ -399,7 +402,7 @@ const formato = (c: string) => (TEXTO.indexOf(c) >= 0 ? "@" : DATAS.indexOf(c) >
 // Escreve linhas a partir da linha «inicio» do corpo: formatos primeiro (texto fica texto: NUIT, contas, IDs), depois valores.
 function escreverLinhas(tab: Tab, inicio: number, matriz: Valor[][]) {
   if (!matriz.length) return;
-  const fmts = tab.cab.map(formato), rg = tab.folha.getRangeByIndexes(tab.l0 + inicio, tab.c0, matriz.length, tab.cab.length);
+  const fmts = tab.cab.map((c) => formato(c)), rg = tab.folha.getRangeByIndexes(tab.l0 + inicio, tab.c0, matriz.length, tab.cab.length);
   rg.setNumberFormats(matriz.map(() => fmts));
   rg.setValues(matriz.map((l) => l.map((v, j) => (fmts[j] === "@" ? String(v) : v))));
 }

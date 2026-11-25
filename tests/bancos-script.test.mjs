@@ -143,11 +143,11 @@ test("base.consultar: devolve as tabelas (vazias antes da primeira gravação) s
   const w = livro();
   const vazio = chamar(w, {operacao: "base.consultar", tabelas: ["tbl_Extratos", "tbl_MovimentosBancarios"]});
   assert.equal(vazio.sucesso, true);
-  assert.deepEqual(vazio.tabelas.map((t) => t.linhas.length), [0, 0]);
+  assert.deepEqual(JSON.parse(vazio.tabelas_json).map((t) => t.linhas.length), [0, 0]);
   assert.equal(w.getTable("tbl_Extratos"), undefined, "consultar não cria tabelas");
   chamar(w, pedidoExtrato(MOV, HASH_A));
   const r = chamar(w, {operacao: "base.consultar"});
-  const m = r.tabelas.find((t) => t.tabela === "tbl_MovimentosBancarios");
+  const m = JSON.parse(r.tabelas_json).find((t) => t.tabela === "tbl_MovimentosBancarios");
   assert.equal(m.linhas.length, 4);
   assert.equal(m.colunas[0], "ID_Movimento");
   assert.equal(chamar(w, {operacao: "base.consultar", tabelas: ["xpto"]}).codigo, "PEDIDO_INVALIDO");
