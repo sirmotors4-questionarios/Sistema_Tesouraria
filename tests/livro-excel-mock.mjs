@@ -6,6 +6,8 @@ import vm from "node:vm";
 const fonte = stripTypeScriptTypes(readFileSync(new URL("../office-scripts/TesourariaBaseMae.ts", import.meta.url), "utf8"));
 const ctx = vm.createContext({});
 vm.runInContext(fonte, ctx);
+// Chamada directa com o texto bruto do parâmetro «pedido» (para testar o diagnóstico)
+globalThis.__mainBaseMae = (w, texto) => ctx.main(w, texto);
 
 export function livro() {
   const tabelas = new Map(), folhas = new Map();

@@ -196,3 +196,15 @@ test("reserva do livro: outra gravação em curso → EM_USO sem gravar; reserva
   controlo.celulas["A2:C2"] = ["B", Date.now(), "banco.conciliar"];
   assert.equal(chamar(w, {operacao: "base.consultar"}).sucesso, true);
 });
+
+test("diagnóstico do parâmetro «pedido»: vazio, texto, sem operação, embrulhado e codificado duas vezes", async () => {
+  const {livro: novoLivro} = await import("./livro-excel-mock.mjs");
+  const w = novoLivro();
+  const bruto = (x) => JSON.parse(JSON.stringify(globalThis.__mainBaseMae(w, x)));
+  assert.equal(bruto("").codigo, "PEDIDO_VAZIO");
+  assert.match(bruto("").mensagem, /string\(outputs\('Pedido'\)\)/);
+  assert.equal(bruto("string(outputs('Pedido'))").codigo, "PEDIDO_INVALIDO");
+  assert.equal(bruto("{}").codigo, "PEDIDO_SEM_OPERACAO");
+  assert.equal(bruto(JSON.stringify({body: {operacao: "base.consultar"}})).sucesso, true);
+  assert.equal(bruto(JSON.stringify(JSON.stringify({operacao: "base.consultar"}))).sucesso, true);
+});

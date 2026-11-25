@@ -94,9 +94,23 @@ function main(workbook: ExcelScript.Workbook, pedido: string): Resultado {
     r.codigo = codigo; r.mensagem = mensagem; r.ms = Date.now() - t0; return r;
   };
 
+  // Diagnóstico da ligação no Power Automate: o parâmetro «pedido» tem de ser a expressão string(outputs('Pedido')).
+  const DICA = " No fluxo TES_BASE_MAE, na acção «Executar script», o campo «pedido» deve ser a EXPRESSÃO (fx) string(outputs('Pedido')).";
+  if (!texto(pedido)) return fim("PEDIDO_VAZIO", "O script recebeu o pedido vazio." + DICA);
   let p: Registo;
-  try { p = JSON.parse(pedido || "{}") as Registo; } catch { return fim("PEDIDO_INVALIDO", "O pedido não é JSON válido."); }
+  try {
+    let v: unknown = JSON.parse(pedido);
+    if (typeof v === "string") v = JSON.parse(v); // pedido codificado duas vezes
+    p = (v && typeof v === "object" ? v : {}) as Registo;
+    // Aceita o corpo embrulhado (ex.: {"body": {...}} ou {"pedido": {...}})
+    for (const k of ["body", "pedido", "Pedido"]) {
+      const dentro = p[k];
+      if (!texto(p.operacao) && dentro && typeof dentro === "object") p = dentro as Registo;
+      else if (!texto(p.operacao) && typeof dentro === "string" && dentro.trim().charAt(0) === "{") p = JSON.parse(dentro) as Registo;
+    }
+  } catch { return fim("PEDIDO_INVALIDO", "O pedido não é JSON válido (recebido: «" + texto(pedido).slice(0, 60) + "»)." + DICA); }
   r.operacao = texto(p.operacao);
+  if (!r.operacao) return fim("PEDIDO_SEM_OPERACAO", "O pedido chegou sem «operacao» (recebido: «" + texto(pedido).slice(0, 80) + "»)." + DICA);
   if (GRAVAM.indexOf(r.operacao) >= 0) {
     const idPedido = texto(p.id_pedido) || String(t0) + "-" + String(Math.random()).slice(2, 8);
     const ocupado = reservar(workbook, idPedido, r.operacao);
