@@ -82,7 +82,8 @@
   // ---------- Colunas do extracto ----------
   const SINONIMOS = {
     data: ["data", "data mov", "data movimento", "data do movimento", "data operacao", "data lancamento", "data contabilistica",
-      "dt mov", "date", "transaction date", "posting date", "booking date", "data transaccao", "data transacao"],
+      "dt mov", "date", "transaction date", "posting date", "booking date", "data transaccao", "data transacao",
+      "tran date", "trans date", "txn date", "trn date", "trans. date"],
     dataValor: ["data valor", "data-valor", "dt valor", "value date", "valor data"],
     descricao: ["descricao", "descritivo", "descricao movimento", "descricao do movimento", "detalhes", "detalhe", "narrativa", "historico",
       "movimento", "description", "details", "narrative", "particulars", "transaction details", "operacao", "designacao"],
@@ -178,10 +179,17 @@
         continue;
       }
       movimentos.push({data: d, dataValor: data(celula(l, "dataValor"), anoRef) || "", descricao: texto(celula(l, "descricao")),
-        referencia: texto(celula(l, "referencia")), valor, saldo: Number.isFinite(saldo) ? saldo : null, origem: "linha " + (i + 1)});
+        referencia: texto(celula(l, "referencia")), valor, saldo: Number.isFinite(saldo) ? saldo : null, origem: "linha " + (i + 1),
+        ...(Number.isFinite(saldo) && /\d[.,]\s*$/.test(texto(celula(l, "saldo"))) ? {saldoTruncado: true} : {})});
     }
     if (!movimentos.length) avisos.push("O cabeçalho foi encontrado, mas nenhuma linha tem data e valor válidos.");
-    return {movimentos: finalizar(movimentos), avisos, mapa, linhaCabecalho: cab.linha, saldoInicial, saldoFinal};
+    const res = {movimentos: [], avisos, mapa, linhaCabecalho: cab.linha, saldoInicial, saldoFinal};
+    if (movimentos.some((m) => m.saldoTruncado)) {
+      const aviso = reconstruirSaldosCortados(movimentos, res);
+      if (aviso) avisos.push(aviso);
+    }
+    res.movimentos = finalizar(movimentos);
+    return res;
   }
 
   // ---------- PDF (texto com posições, ou OCR) → matriz ----------
@@ -211,12 +219,18 @@
     }
     if (!cabecalho) return null;
     const cols = cabecalho.cols.sort((a, b) => a.x - b.x);
+    const inferidas = inferirColunasNumericas(cols, linhas.slice(linhas.indexOf(cabecalho.linha) + 1));
     // Os números alinham à direita do título; o texto à esquerda. Usar o intervalo de cada título com folga.
+    const NUMERICAS = ["debito", "credito", "montante", "saldo"];
+    const haTexto = cols.some((c) => !NUMERICAS.includes(c.campo));
     const colunaDe = (it) => {
       const centro = it.x + it.w / 2, fim = it.x + it.w;
       let melhor = 0, dist = Infinity;
+      const numerico = /^[\d\s.,()\-+]+(D|C|DR|CR)?$/i.test(it.str.trim());
       cols.forEach((c, j) => {
-        const numerico = /^[\d\s.,()\-+]+(D|C|DR|CR)?$/i.test(it.str.trim());
+        // Texto nunca vai para uma coluna de valores (ex.: OCR junta «AUTHORISATION CODE DEBIT» num só título e a
+        // última palavra de um descritivo longo ficava no débito: «INVEST 80,585.23»).
+        if (!numerico && haTexto && NUMERICAS.includes(c.campo)) return;
         const alvo = numerico && ["debito", "credito", "montante", "saldo"].includes(c.campo) ? Math.abs(fim - c.fim) : Math.abs(centro - (c.x + c.fim) / 2);
         const dentro = it.x >= c.x - 4 && fim <= c.fim + 4 ? -1000 : 0;
         if (alvo + dentro < dist) { dist = alvo + dentro; melhor = j; }
@@ -236,7 +250,89 @@
     const mapa = {};
     cols.forEach((c, j) => { if (mapa[c.campo] == null) mapa[c.campo] = j; });
     if (mapa.data == null) mapa.data = mapa.dataValor;
-    return {matriz, mapa};
+    return {matriz, mapa, inferidas};
+  }
+  // Valores monetários alinham à direita. Quando o PDF cortou títulos de colunas (impresso do browser com a página
+  // estreita: «CREDIT» e «BALANCE» fora da margem), os valores continuam lá: agrupam-se os fins (x da direita) dos
+  // números com casas decimais e cada grupo com apoio suficiente é uma coluna. As colunas numéricas com título ficam
+  // com o grupo mais próximo; os grupos a mais, à direita, são as colunas em falta (crédito e/ou saldo, por esta ordem).
+  const RE_DINHEIRO = /^\(?-?\d[\d.,\s']*[.,](\d{1,2})?\)?-?(\s?(D|C|DR|CR))?$/i;
+  function inferirColunasNumericas(cols, dados) {
+    const NUM = ["debito", "credito", "montante", "saldo"];
+    const fins = [];
+    let linhasComNumero = 0;
+    for (const l of dados.slice(0, 400)) {
+      const ns = l.itens.filter((it) => RE_DINHEIRO.test(String(it.str).trim()));
+      if (ns.length) linhasComNumero++;
+      for (const it of ns) fins.push(it.x + it.w);
+    }
+    if (linhasComNumero < 3) return [];
+    fins.sort((a, b) => a - b);
+    const grupos = [];
+    for (const f of fins) {
+      const u = grupos[grupos.length - 1];
+      if (u && f - u.max <= 3) { u.max = f; u.n++; u.soma += f; } else grupos.push({min: f, max: f, n: 1, soma: f});
+    }
+    const fortes = grupos.filter((g) => g.n >= Math.max(3, linhasComNumero * 0.15)).map((g) => ({fim: g.soma / g.n}));
+    const numericas = cols.filter((c) => NUM.includes(c.campo));
+    if (!numericas.length || fortes.length <= numericas.length) return [];
+    // As colunas com título ficam com os grupos mais à esquerda (pela ordem); os restantes são colunas em falta.
+    numericas.sort((a, b) => a.x - b.x).forEach((c, k) => { c.fim = fortes[k].fim; c.x = Math.min(c.x, fortes[k].fim - 40); });
+    const tem = new Set(cols.map((c) => c.campo));
+    const faltam = ["credito", "saldo"].filter((c) => !tem.has(c) && !(c === "credito" && tem.has("montante")));
+    const novas = [];
+    fortes.slice(numericas.length).forEach((g, k) => {
+      const campo = faltam[k];
+      if (!campo) return;
+      const c = {campo, x: g.fim - 40, fim: g.fim, titulo: (campo === "credito" ? "Crédito" : "Saldo") + " (deduzido)"};
+      cols.push(c); novas.push(c.titulo);
+    });
+    cols.sort((a, b) => a.x - b.x);
+    return novas;
+  }
+  // Saldos cortados no PDF («2,306,722.»: sem cêntimos). Os débitos e créditos estão completos, por isso o saldo exacto
+  // é saldo inicial + soma dos movimentos. Cada saldo cortado limita os cêntimos do saldo inicial a um intervalo; a
+  // intersecção de todos dá o valor exacto (com centenas de linhas fica um só valor). Devolve um aviso ou "".
+  function reconstruirSaldosCortados(movimentos, resultado) {
+    const cortados = movimentos.filter((m) => m.saldoTruncado).length;
+    if (!cortados) return "";
+    // Intervalo (em cêntimos) do saldo inicial compatível com cada saldo lido
+    const intervalos = [];
+    let soma = 0;
+    for (const m of movimentos) {
+      soma += centimos(m.valor);
+      if (m.saldo == null) continue;
+      const T = Math.round(m.saldo * 100);
+      if (!m.saldoTruncado) intervalos.push([T - soma, T - soma, m]);
+      else if (T >= 0) intervalos.push([T - soma, T + 99 - soma, m]);
+      else intervalos.push([T - 99 - soma, T - soma, m]);
+    }
+    for (const m of movimentos) delete m.saldoTruncado;
+    // Valor que satisfaz mais saldos (varrimento). Um saldo mal lido (ex.: OCR «544,52].») fica de fora e é assinalado,
+    // em vez de invalidar todos.
+    const ev = [];
+    for (const [a, b] of intervalos) { ev.push([a, 1]); ev.push([b + 1, -1]); }
+    ev.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+    let n = 0, melhor = -1, lo = 0, hi = 0;
+    for (let k = 0; k < ev.length; k++) {
+      n += ev[k][1];
+      if (ev[k][1] === 1 && n > melhor) { melhor = n; lo = ev[k][0]; hi = (ev[k + 1] ? ev[k + 1][0] : ev[k][0] + 1) - 1; }
+    }
+    const fora = intervalos.filter(([a, b]) => lo < a || lo > b).map(([, , m]) => m);
+    if (melhor < Math.max(2, intervalos.length * 0.8)) {
+      for (const m of movimentos) m.saldo = null;
+      return cortados + " saldos vinham cortados no PDF (sem cêntimos) e não batem com os movimentos: os saldos foram ignorados. Confirme se faltam linhas.";
+    }
+    const inicial = lo; // com intervalo largo usa-se o mínimo (a diferença fica nos cêntimos)
+    let s = inicial;
+    for (const m of movimentos) { s += centimos(m.valor); m.saldo = s / 100; }
+    resultado.saldoInicial = inicial / 100;
+    resultado.saldoFinal = s / 100;
+    const base = "O PDF cortou a coluna do saldo (sem cêntimos). Os saldos foram reconstruídos a partir dos débitos e créditos";
+    const dif = fora.length ? " " + fora.length + " saldo(s) lido(s) não batem — provável erro de leitura, confirme: " + fora.slice(0, 5).map((m) => m.data + " " + Math.abs(m.valor).toFixed(2)).join("; ") + (fora.length > 5 ? "…" : "") + "." : "";
+    return (lo === hi || hi - lo < 1
+      ? base + " e batem com " + (intervalos.length - fora.length) + " de " + intervalos.length + " saldos do extracto."
+      : base + "; os cêntimos do saldo inicial podem diferir até " + ((hi - lo) / 100).toFixed(2).replace(".", ",") + " MT.") + dif;
   }
 
   // Alternativa sem cabeçalho reconhecível (ex.: OCR imperfeito): cada linha que começa por uma data e termina em
@@ -341,10 +437,20 @@
       const jn = k.indexOf("nib");
       if (!r.nib && jn >= 0) { const v = l.slice(jn + 1).map((x) => texto(x).replace(/\D/g, "")).find((x) => x.length >= 15); if (v) r.nib = v; }
     }
-    if (!r.conta && Array.isArray(textos)) {
+    if (Array.isArray(textos)) {
       for (const t of textos.slice(0, 80)) {
-        const m = texto(t).match(/\b(?:conta|account)\b\s*(?:n[.º°o]*|number|no\.?)?\s*[:\-]?\s*(\d[\d .\-]{5,}\d)/i);
-        if (m) { r.conta = m[1].replace(/[\s.\-]/g, ""); break; }
+        const l = texto(t);
+        // Rótulo explícito («Account Number : 3368», «Nº de conta: 123»): aceita números curtos
+        const e = !r.conta && l.match(/\b(?:account\s*(?:number|no\.?|n[ºo°])|n[.º°o]*\s*(?:de\s*)?conta|numero\s*(?:de\s*)?conta)\s*[:\-]?\s*(\d[\d .\-]{1,}\d)/i);
+        if (e) r.conta = e[1].replace(/[\s.\-]/g, "");
+        const m = !r.conta && l.match(/\b(?:conta|account)\b\s*(?:n[.º°o]*|number|no\.?)?\s*[:\-]?\s*(\d[\d .\-]{5,}\d)/i);
+        if (m) r.conta = m[1].replace(/[\s.\-]/g, "");
+        // IBAN moçambicano: MZ + 2 dígitos de controlo + NIB de 21 dígitos
+        const ib = !r.nib && l.replace(/\s/g, "").match(/MZ\d{2}(\d{21})/i);
+        if (ib) r.nib = ib[1];
+        const nib = !r.nib && l.match(/\bNIB\b\s*[:\-]?\s*([\d ]{21,27})/i);
+        if (nib && nib[1].replace(/\D/g, "").length === 21) r.nib = nib[1].replace(/\D/g, "");
+        if (r.conta && r.nib) break;
       }
     }
     return r;
@@ -416,24 +522,80 @@
   // Regras: valor igual ao cêntimo é obrigatório; a data e as referências dão pontos.
   const PALAVRAS_VAZIAS = new Set(["de", "da", "do", "das", "dos", "e", "a", "o", "para", "lda", "sa", "limitada", "sarl", "mz", "trf", "transf", "pagamento", "pag"]);
   const fichas = (v) => chaveTexto(v).split(/[^a-z0-9]+/).filter((t) => t.length >= 3 && !PALAVRAS_VAZIAS.has(t));
+  // ---------- Cheques ----------
+  // Nos despachos o meio fica em «F. de Pagamento» e o nº do cheque em «Ref. Pagamento». No extracto o nº aparece no
+  // descritivo («Pagamento de Cheque 1294827») ou na referência. O cheque é debitado quando é apresentado, por isso
+  // pode cair semanas depois da saída: com o nº igual aceita-se até TOLERANCIA_CHEQUE dias depois.
+  const TOLERANCIA_CHEQUE = 90;
+  const soDigitos = (v) => texto(v).replace(/\D/g, "").replace(/^0+/, "");
+  const eCheque = (meio) => /cheq|chq/.test(chaveTexto(meio));
+  function chequesDoMovimento(m) {
+    if (m._cheques) return m._cheques;
+    const desc = chaveTexto(m.descricao + " " + m.referencia), out = new Set();
+    if (/cheq|chq/.test(desc)) for (const t of (texto(m.descricao) + " " + texto(m.referencia)).match(/\d{3,12}/g) || []) out.add(t.replace(/^0+/, ""));
+    const ref = texto(m.referencia);
+    if (/^\d{3,12}$/.test(ref)) out.add(ref.replace(/^0+/, ""));
+    Object.defineProperty(m, "_cheques", {value: out, enumerable: false});
+    return out;
+  }
+  // Nº quase igual (um algarismo trocado, a mais ou a menos, ou dois vizinhos trocados): provável erro de digitação.
+  function quaseIgual(a, b) {
+    if (a === b || Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 4) return false;
+    if (a.length === b.length) {
+      const d = [...a].map((c, i) => (c !== b[i] ? i : -1)).filter((i) => i >= 0);
+      return d.length === 1 || (d.length === 2 && d[1] === d[0] + 1 && a[d[0]] === b[d[1]] && a[d[1]] === b[d[0]]);
+    }
+    const [c, l] = a.length < b.length ? [a, b] : [b, a];
+    for (let i = 0; i < l.length; i++) if (l.slice(0, i) + l.slice(i + 1) === c) return true;
+    return false;
+  }
+  // Nº abreviado no despacho: nos despachos é comum registar só o início e o fim do nº («4517» para 45564417).
+  // Aceita quando o nº curto (3–5 algarismos) é um prefixo + sufixo do nº do banco (sufixo com 2 ou mais algarismos).
+  function abreviado(curto, longo) {
+    if (curto.length < 3 || curto.length > 5 || longo.length < curto.length + 2) return false;
+    if (longo.endsWith(curto)) return true;
+    for (let k = 1; k <= curto.length - 2; k++) if (longo.startsWith(curto.slice(0, k)) && longo.endsWith(curto.slice(k))) return true;
+    return false;
+  }
+  // Relação entre o cheque do pagamento e o movimento: "igual" | "abreviado" | "parecido" | "diferente" | ""
+  function relacaoCheque(mov, pag) {
+    if (!pag.cheque) return {tipo: ""};
+    const ch = chequesDoMovimento(mov);
+    if (ch.has(pag.cheque)) return {tipo: "igual"};
+    for (const c of ch) if (c.length >= 6 && pag.cheque.length >= 6 && (c.endsWith(pag.cheque) || pag.cheque.endsWith(c))) return {tipo: "igual"};
+    for (const c of ch) if (abreviado(pag.cheque, c)) return {tipo: "abreviado", banco: c};
+    for (const c of ch) if (quaseIgual(c, pag.cheque)) return {tipo: "parecido", banco: c};
+    return {tipo: /cheq|chq/.test(chaveTexto(mov.descricao + " " + mov.referencia)) && ch.size ? "diferente" : "", banco: [...ch][0]};
+  }
+
   function pontuar(mov, pag, tolerancia) {
     if (centimos(Math.abs(mov.valor)) !== centimos(Math.abs(pag.valor))) return null;
     const ref = pag.data || pag.dataPrevista;
     const dias = ref ? Math.abs(diasEntre(mov.data, ref)) : null;
-    if (dias != null && dias > tolerancia) return null;
+    const ch = relacaoCheque(mov, pag);
+    // Cheque com o mesmo nº: pode ser apresentado semanas depois da saída (nunca muito antes)
+    const depois = ref ? diasEntre(mov.data, ref) : null; // dias do débito depois da saída
+    const janelaCheque = (ch.tipo === "igual" || ch.tipo === "abreviado") && depois != null && depois >= -3 && depois <= TOLERANCIA_CHEQUE;
+    if (dias != null && dias > tolerancia && !janelaCheque) return null;
     let pontos = 50, motivos = ["valor igual"];
+    if (ch.tipo === "igual") { pontos += 40; motivos.push("nº do cheque " + pag.cheque + " igual"); }
+    else if (ch.tipo === "abreviado") { pontos += 30; motivos.push("nº do cheque abreviado no despacho (" + pag.cheque + " = " + ch.banco + "; registar o nº completo)"); }
+    else if (ch.tipo === "parecido") { pontos -= 10; motivos.push("nº do cheque parecido: despacho " + pag.cheque + ", banco " + ch.banco + " (verificar digitação)"); }
+    else if (ch.tipo === "diferente") { pontos -= 40; motivos.push("nº do cheque diferente: despacho " + pag.cheque + ", banco " + ch.banco); }
     if (dias === 0) { pontos += 25; motivos.push("mesma data"); }
-    else if (dias != null) { pontos += Math.max(0, 20 - dias * 3); motivos.push(dias + " dia(s) de diferença"); }
+    else if (dias != null && !janelaCheque) { pontos += Math.max(0, 20 - dias * 3); motivos.push(dias + " dia(s) de diferença"); }
+    else if (dias != null) motivos.push(depois >= 0 ? "cheque apresentado " + depois + " dia(s) depois da saída" : "débito " + (-depois) + " dia(s) antes da data de saída");
     const desc = chaveTexto(mov.descricao + " " + mov.referencia);
     const descSemEspacos = desc.replace(/[^a-z0-9]/g, "");
     for (const [campo, nome, peso] of [["referencia", "referência do pagamento", 30], ["despacho", "nº de despacho", 25], ["requisicao", "nº de requisição", 20]]) {
+      if (campo === "referencia" && pag.cheque) continue; // o nº do cheque já foi avaliado acima
       const r = chaveTexto(pag[campo]).replace(/[^a-z0-9]/g, "");
       if (r.length >= 4 && descSemEspacos.includes(r)) { pontos += peso; motivos.push(nome + " no descritivo"); }
     }
     const fForn = fichas(pag.fornecedor);
     const comuns = fForn.filter((t) => desc.includes(t));
     if (comuns.length) { pontos += Math.min(15, comuns.length * 8); motivos.push("fornecedor no descritivo"); }
-    return {pontos: Math.min(100, pontos), motivos, dias};
+    return {pontos: Math.max(0, Math.min(100, pontos)), motivos, dias, cheque: ch.tipo};
   }
 
   // Emparelha débitos do extracto com pagamentos. 1:1 primeiro (melhor pontuação global); depois N:1 (vários pagamentos
@@ -443,13 +605,30 @@
     const tolerancia = opcoes.toleranciaDias ?? 5, limiar = opcoes.limiarAutomatico ?? 75, maxGrupo = opcoes.maxGrupo ?? 5;
     // sentido "credito": entradas do extracto contra recibos (Recebimentos); por omissão débitos contra pagamentos
     const debitos = movimentos.filter((m) => (opcoes.sentido === "credito" ? m.valor > 0 : m.valor < 0));
+    const usadosM = new Set(), usadosP = new Set(), resultado = [];
+    // 1.º Um cheque que paga várias despesas: as despesas com o mesmo nº de cheque somam o valor do débito (sem limite
+    // de quantidade). É a prova mais forte, por isso vem antes do 1:1 (que podia levar uma das despesas sozinha).
+    const porCheque = new Map();
+    for (const p of pagamentos) if (p.cheque) porCheque.set(p.cheque, (porCheque.get(p.cheque) || []).concat([p]));
+    for (const m of debitos) {
+      for (const c of chequesDoMovimento(m)) {
+        const ps = [...porCheque.entries()].filter(([k]) => k === c || abreviado(k, c)).flatMap(([, v]) => v).filter((p) => !usadosP.has(p.id));
+        if (ps.length < 2 || usadosM.has(m.id)) continue;
+        if (ps.reduce((s, p) => s + centimos(p.valor), 0) !== centimos(Math.abs(m.valor))) continue;
+        const ref = ps.map((p) => p.data || p.dataPrevista).filter(Boolean).sort()[0];
+        const depois = ref ? diasEntre(m.data, ref) : 0;
+        if (depois < -3 || depois > TOLERANCIA_CHEQUE) continue;
+        ps.forEach((p) => usadosP.add(p.id)); usadosM.add(m.id);
+        resultado.push({mov: m.id, pags: ps.map((p) => p.id), pontos: 95, motivos: ["cheque nº " + c + " paga " + ps.length + " despesas", "soma igual ao débito"], dias: Math.abs(depois), tipo: "N:1", estado: "automatico", ambiguo: false});
+      }
+    }
     const pares = [];
     for (const m of debitos) for (const p of pagamentos) {
+      if (usadosM.has(m.id) || usadosP.has(p.id)) continue;
       const r = pontuar(m, p, tolerancia);
       if (r) pares.push({mov: m.id, pags: [p.id], ...r});
     }
     pares.sort((a, b) => b.pontos - a.pontos || (a.dias ?? 99) - (b.dias ?? 99));
-    const usadosM = new Set(), usadosP = new Set(), resultado = [];
     const candidatosM = new Map(), candidatosP = new Map();
     for (const p of pares) {
       candidatosM.set(p.mov, (candidatosM.get(p.mov) || []).concat(p));
@@ -460,14 +639,20 @@
       // Ambíguo: outro candidato com a mesma pontuação no mesmo movimento ou pagamento (a troca seria igualmente válida)
       const rivais = [...candidatosM.get(p.mov), ...candidatosP.get(p.pags[0])].filter((q) => q !== p && q.pontos === p.pontos);
       usadosM.add(p.mov); usadosP.add(p.pags[0]);
-      resultado.push({...p, tipo: "1:1", estado: p.pontos >= limiar && !rivais.length ? "automatico" : "sugerido", ambiguo: rivais.length > 0});
+      // Dois despachos com o mesmo cheque e o mesmo valor para um só débito: provável despacho duplicado
+      const pagPorId = (id) => pagamentos.find((x) => x.id === id);
+      const este = pagPorId(p.pags[0]);
+      const gemeos = este?.cheque ? rivais.filter((q) => q.mov === p.mov && pagPorId(q.pags[0])?.cheque === este.cheque) : [];
+      const motivos = gemeos.length ? [...p.motivos, "possível despacho duplicado: o cheque " + este.cheque + " aparece em " + (gemeos.length + 1) + " despachos com o mesmo valor"] : p.motivos;
+      resultado.push({...p, motivos, tipo: "1:1", estado: p.pontos >= limiar && !rivais.length ? "automatico" : "sugerido", ambiguo: rivais.length > 0});
     }
     // N:1 com o que sobrou
     const pagLivres = pagamentos.filter((p) => !usadosP.has(p.id));
     for (const m of debitos) {
       if (usadosM.has(m.id)) continue;
       const alvo = centimos(Math.abs(m.valor));
-      const cand = pagLivres.filter((p) => !usadosP.has(p.id) && centimos(p.valor) < alvo && (!(p.data || p.dataPrevista) || Math.abs(diasEntre(m.data, p.data || p.dataPrevista)) <= tolerancia))
+      const cand = pagLivres.filter((p) => !usadosP.has(p.id) && centimos(p.valor) < alvo && (!(p.data || p.dataPrevista) || Math.abs(diasEntre(m.data, p.data || p.dataPrevista)) <= tolerancia)
+        && relacaoCheque(m, p).tipo !== "diferente")
         .sort((a, b) => b.valor - a.valor).slice(0, 14);
       const grupo = somaExacta(cand, alvo, maxGrupo);
       if (grupo) {
@@ -498,14 +683,14 @@
   function pagamentosParaConciliar(registos, {conta = "", idConta = "", banco = "", de = "", ate = "", toleranciaDias = 5} = {}) {
     const kConta = chaveTexto(conta).replace(/[^a-z0-9]/g, ""), kBanco = chaveTexto(banco);
     const margem = (iso, d) => (iso ? new Date(Date.parse(iso) + d * 86400000).toISOString().slice(0, 10) : "");
-    const ini = margem(de, -toleranciaDias), fim = margem(ate, toleranciaDias);
+    const ini = margem(de, -toleranciaDias), fim = margem(ate, toleranciaDias), iniCheque = margem(de, -TOLERANCIA_CHEQUE);
     return registos.filter((r) => {
       const estado = chaveTexto(r.estado);
       if (estado !== "pago" && estado !== "aguardando saida") return false;
       const valor = Number(r.valor);
       if (!Number.isFinite(valor) || valor <= 0) return false;
       const dt = r.dataSaida || r.dataDespacho || "";
-      if (ini && dt && dt < ini) return false;
+      if (ini && dt && dt < (eCheque(r.meio) && soDigitos(r.referencia) ? iniCheque : ini)) return false;
       if (fim && dt && dt > fim) return false;
       // Conta: pelo ID_Conta quando ambos o têm (despachos V9); senão pelo número (aceita número parcial no fim).
       if (idConta && r.idConta) return String(r.idConta).trim() === String(idConta).trim();
@@ -514,7 +699,7 @@
       if (!kConta && kBanco && rb && rb !== kBanco) return false;
       return true;
     }).map((r) => ({id: String(r.id), idDocumento: String(r.idDocumento || ""), tipo: "despesa", valor: Number(r.valor), data: r.dataSaida || "", dataPrevista: r.dataDespacho || "",
-      referencia: r.referencia || "", despacho: r.despacho || "", requisicao: r.requisicao || "", fornecedor: r.fornecedor || "",
+      referencia: r.referencia || "", meio: r.meio || "", cheque: eCheque(r.meio) ? soDigitos(r.referencia) : "", despacho: r.despacho || "", requisicao: r.requisicao || "", fornecedor: r.fornecedor || "",
       estado: r.estado, conta: r.conta || "", banco: r.banco || "", empresa: r.empresa || ""}));
   }
 

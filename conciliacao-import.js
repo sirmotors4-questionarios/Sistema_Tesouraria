@@ -111,7 +111,26 @@
       const alt = C.textoParaMovimentos(textos, {ano});
       if (!resultado || alt.movimentos.length > resultado.movimentos.length) resultado = {...alt, mapa: null, linhaCabecalho: -1, saldoFinal: null};
     }
-    return {resultado, matriz: tabela?.matriz || null, textos};
+    return {resultado, matriz: tabela?.matriz || null, textos, inferidas: tabela?.inferidas || []};
+  }
+
+  // PDF com texto: lê a camada de texto. Devolve null só quando o PDF é digitalizado (quase sem texto) ou não há movimentos.
+  async function lerPdfDoc(doc, aoProgresso) {
+    const {linhas, caracteres} = await textoDoPdf(doc, aoProgresso);
+    if (caracteres / doc.numPages <= 80) return null; // digitalizado: quase sem texto por página
+    const ano = anoProvavel(linhas.flatMap((l) => l.itens.map((i) => i.str)));
+    const r = interpretarLinhas(linhas, ano);
+    // PDF com texto: o OCR leria o mesmo texto pior. Sem movimentos reconhecidos, devolve o que leu (colunas por
+    // indicar), em vez de passar ao OCR sem o utilizador pedir.
+    if (!r.resultado.movimentos.length)
+      r.resultado.avisos = ["O PDF tem texto, mas a tabela de movimentos não foi reconhecida. Indique as colunas, ou marque «Ler o PDF com OCR» se for uma imagem.", ...(r.resultado.avisos || [])];
+    // «Results 1 - 354 of 354» (internet banking): confirma que não falta nenhuma linha
+    const total = r.textos.map((t) => String(t).match(/\bresults?\s+\d+\s*-\s*\d+\s+(?:of|de)\s+(\d+)/i)).find(Boolean);
+    if (total && r.resultado.movimentos.length && Number(total[1]) !== r.resultado.movimentos.length)
+      r.resultado.avisos = [...(r.resultado.avisos || []), "O extracto indica " + total[1] + " movimentos, mas foram lidos " + r.resultado.movimentos.length + ". Confirme se falta alguma página ou linha."];
+    if (r.inferidas?.length)
+      r.resultado.avisos = [...(r.resultado.avisos || []), "Colunas sem título no PDF (cortadas na margem): " + r.inferidas.join(", ") + ", pela posição dos valores. Confirme os sinais."];
+    return {metodo: "PDF (texto)", matriz: r.matriz, textos: r.textos, resultado: r.resultado, paginas: doc.numPages};
   }
 
   // ---------- OCR ----------
@@ -121,24 +140,38 @@
     if (!trabalhadorOcr) {
       aoProgresso?.("A preparar o OCR (português)… na primeira vez pode demorar.");
       trabalhadorOcr = await T.createWorker("por", 1, {logger: (m) => { if (m.status === "recognizing text") aoProgresso?.("OCR: " + Math.round(m.progress * 100) + "% da página…"); }});
+      // Extractos são tabelas: «bloco único» (PSM 6) mantém cada linha inteira (data … débito crédito saldo). Com a
+      // segmentação automática (PSM 3) o Tesseract parte a tabela em colunas soltas e não se reconhecem movimentos.
+      // Medido num extracto Vista Bank digitalizado (3 páginas, 113 movimentos): PSM 3 → 0; PSM 6 → 112 correctos.
+      await trabalhadorOcr.setParameters({tessedit_pageseg_mode: "6", preserve_interword_spaces: "1", user_defined_dpi: "300"});
     }
     const linhas = [];
     for (let k = 0; k < fontes.length; k++) {
       aoProgresso?.("OCR: página " + (k + 1) + " de " + fontes.length + "…");
       const {data} = await trabalhadorOcr.recognize(fontes[k]);
       for (const l of data.lines || []) {
-        const itens = (l.words || []).filter((w) => w.text && w.text.trim()).map((w) => ({x: w.bbox.x0, w: w.bbox.x1 - w.bbox.x0, y: -w.bbox.y0, str: w.text}));
+        const itens = (l.words || []).filter((w) => w.text && w.text.trim()).map((w) => ({x: w.bbox.x0, w: w.bbox.x1 - w.bbox.x0, y: -w.bbox.y0, str: limparOcr(w.text)}));
         if (itens.length) linhas.push({y: -l.bbox.y0 - (k + 1) * 100000, itens});
       }
     }
     return linhas;
+  }
+  // Confusões típicas do OCR dentro de números («544,52].» → «544,521.», «l0» → «10», «O» → «0»). Só em palavras
+  // que já são quase só algarismos e separadores, para não estragar texto.
+  function limparOcr(t) {
+    const s = String(t).trim().replace(/[—–]+$/, "").trim();
+    const digitos = (s.match(/\d/g) || []).length;
+    if (digitos < 2 || !/^[\d.,\]\[|lIOo()\-]+$/.test(s) || digitos / s.length < 0.6) return s;
+    return s.replace(/[\]\[|lI]/g, "1").replace(/[Oo]/g, "0");
   }
   async function paginasParaImagens(doc, aoProgresso) {
     const imagens = [];
     for (let n = 1; n <= doc.numPages; n++) {
       aoProgresso?.("A preparar a página " + n + " de " + doc.numPages + " para OCR…");
       const pagina = await doc.getPage(n);
-      const vista = pagina.getViewport({scale: 2.5}); // ~180 dpi: bom compromisso entre precisão e tempo
+      // ~300 dpi (o Tesseract foi treinado com texto a 300 dpi), limitado a 4 000 px no lado maior
+      const base = pagina.getViewport({scale: 1});
+      const vista = pagina.getViewport({scale: Math.min(300 / 72, 4000 / Math.max(base.width, base.height))});
       const canvas = document.createElement("canvas");
       canvas.width = Math.ceil(vista.width); canvas.height = Math.ceil(vista.height);
       await pagina.render({canvasContext: canvas.getContext("2d"), viewport: vista}).promise;
@@ -175,12 +208,9 @@
     if (ext === "pdf") {
       aoProgresso?.("A abrir o PDF…");
       const doc = await abrirPdf(buffer);
-      const {linhas, caracteres} = await textoDoPdf(doc, aoProgresso);
-      // PDF digitalizado: quase sem texto por página
-      if (!forcarOcr && caracteres / doc.numPages > 80) {
-        const ano = anoProvavel(linhas.flatMap((l) => l.itens.map((i) => i.str)));
-        const r = interpretarLinhas(linhas, ano);
-        if (r.resultado.movimentos.length) return {metodo: "PDF (texto)", nome: ficheiro.name, matriz: r.matriz, textos: r.textos, resultado: r.resultado, paginas: doc.numPages};
+      if (!forcarOcr) {
+        const t = await lerPdfDoc(doc, aoProgresso);
+        if (t) return {...t, nome: ficheiro.name};
       }
       const imagens = await paginasParaImagens(doc, aoProgresso);
       const linhasOcr = await ocr(imagens, aoProgresso);
@@ -218,5 +248,5 @@
     return {hash, folhas: livro.SheetNames.map((folha) => ({folha, matriz: XLSX.utils.sheet_to_json(livro.Sheets[folha], {header: 1, raw: true, defval: "", blankrows: true})}))};
   }
 
-  root.TES_IMPORTAR = Object.freeze({lerFicheiro, lerFolhas, lerCsv, exportarExcel, LIBS});
+  root.TES_IMPORTAR = Object.freeze({lerFicheiro, lerFolhas, lerCsv, exportarExcel, LIBS, _testes: {lerPdfDoc, interpretarLinhas, limparOcr}});
 })(globalThis);
