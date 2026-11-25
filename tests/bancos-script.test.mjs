@@ -143,11 +143,11 @@ test("base.consultar: devolve as tabelas (vazias antes da primeira gravação) s
   const w = livro();
   const vazio = chamar(w, {operacao: "base.consultar", tabelas: ["tbl_Extratos", "tbl_MovimentosBancarios"]});
   assert.equal(vazio.sucesso, true);
-  assert.deepEqual(vazio.tabelas.map((t) => t.linhas.length), [0, 0]);
+  assert.deepEqual(JSON.parse(vazio.tabelas_json).map((t) => t.linhas.length), [0, 0]);
   assert.equal(w.getTable("tbl_Extratos"), undefined, "consultar não cria tabelas");
   chamar(w, pedidoExtrato(MOV, HASH_A));
   const r = chamar(w, {operacao: "base.consultar"});
-  const m = r.tabelas.find((t) => t.tabela === "tbl_MovimentosBancarios");
+  const m = JSON.parse(r.tabelas_json).find((t) => t.tabela === "tbl_MovimentosBancarios");
   assert.equal(m.linhas.length, 4);
   assert.equal(m.colunas[0], "ID_Movimento");
   assert.equal(chamar(w, {operacao: "base.consultar", tabelas: ["xpto"]}).codigo, "PEDIDO_INVALIDO");
@@ -162,7 +162,7 @@ test("rapidez: vários lotes sem linhas vazias nem duplicados, poucas leituras, 
     const antes = w.cont.leituras;
     const r = chamar(w, {...p, final: i === 2, movimentos: l});
     assert.equal(r.sucesso, true, r.mensagem);
-    assert.ok(w.cont.leituras - antes <= 8, "leituras por lote: " + (w.cont.leituras - antes));
+    assert.ok(w.cont.leituras - antes <= 9, "leituras por lote (inclui a reserva do livro): " + (w.cont.leituras - antes));
   });
   const m = w.ler("tbl_MovimentosBancarios");
   assert.equal(m.length, 2400);
@@ -175,4 +175,36 @@ test("rapidez: vários lotes sem linhas vazias nem duplicados, poucas leituras, 
   // Repetir o 2.º lote (como depois de um tempo esgotado) não duplica
   assert.equal(chamar(w, {...p, final: false, movimentos: lotes[1], extrato: {...p.extrato, ID_Extrato: HASH_B}}).novos, 0);
   assert.equal(w.ler("tbl_MovimentosBancarios").length, 2400);
+});
+
+test("reserva do livro: outra gravação em curso → EM_USO sem gravar; reserva libertada no fim e expirada após 150 s", () => {
+  const w = livro();
+  const p = {...pedidoExtrato(MOV, HASH_A), id_pedido: "A"};
+  assert.equal(chamar(w, p).sucesso, true);
+  const controlo = w.getWorksheet("BM_Controlo");
+  assert.equal(controlo.celulas["A2:C2"][0], "", "reserva libertada no fim");
+  // Simula outra execução a meio (reserva recente de outro pedido)
+  controlo.celulas["A2:C2"] = ["B", Date.now(), "banco.importar_extrato"];
+  const r = chamar(w, {...pedidoExtrato(MOV, HASH_B), id_pedido: "C"});
+  assert.equal(r.codigo, "EM_USO");
+  assert.equal(w.ler("tbl_Extratos").length, 1, "nada gravado");
+  assert.equal(controlo.celulas["A2:C2"][0], "B", "não mexe na reserva alheia");
+  // Reserva antiga (script interrompido): ignorada
+  controlo.celulas["A2:C2"] = ["B", Date.now() - 200000, "banco.importar_extrato"];
+  assert.equal(chamar(w, {...pedidoExtrato(MOV, HASH_B), id_pedido: "C"}).sucesso, true);
+  // Consultar não reserva nem espera
+  controlo.celulas["A2:C2"] = ["B", Date.now(), "banco.conciliar"];
+  assert.equal(chamar(w, {operacao: "base.consultar"}).sucesso, true);
+});
+
+test("diagnóstico do parâmetro «pedido»: vazio, texto, sem operação, embrulhado e codificado duas vezes", async () => {
+  const {livro: novoLivro} = await import("./livro-excel-mock.mjs");
+  const w = novoLivro();
+  const bruto = (x) => JSON.parse(JSON.stringify(globalThis.__mainBaseMae(w, x)));
+  assert.equal(bruto("").codigo, "PEDIDO_VAZIO");
+  assert.match(bruto("").mensagem, /string\(outputs\('Pedido'\)\)/);
+  assert.equal(bruto("string(outputs('Pedido'))").codigo, "PEDIDO_INVALIDO");
+  assert.equal(bruto("{}").codigo, "PEDIDO_SEM_OPERACAO");
+  assert.equal(bruto(JSON.stringify({body: {operacao: "base.consultar"}})).sucesso, true);
+  assert.equal(bruto(JSON.stringify(JSON.stringify({operacao: "base.consultar"}))).sucesso, true);
 });

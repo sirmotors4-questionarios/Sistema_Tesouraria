@@ -12,6 +12,7 @@ movimento do banco com as despesas (saídas) e os recibos.
 | O mesmo ficheiro não entra duas vezes. Cada ficheiro é identificado pelo SHA-256 do seu conteúdo (`ID_Extrato`). | Office Script: `EXTRATO_JA_IMPORTADO`. O site também bloqueia antes de enviar. |
 | O mesmo movimento não entra duas vezes, mesmo que venha de outro formato (CSV, Excel ou PDF), de um extracto com período sobreposto ou de um lote repetido. | Office Script: só **acrescenta** movimentos cuja chave `ID_Movimento` ainda não existe. |
 | Um extracto só é gravado na conta certa: o nº de conta indicado no ficheiro tem de coincidir com a conta seleccionada. | Site (bloqueia) e Office Script (recusa movimentos de outra conta). |
+| Duas gravações ao mesmo tempo (dois utilizadores ou dois separadores) nunca se misturam: as operações que gravam reservam o livro. Quem chega com outra gravação em curso recebe `EM_USO`, sem nada gravado, e o site repete sozinho de 5 em 5 s. | Office Script: reserva em `BM_Controlo!A2:C2`, que expira ao fim de 150 s se o script for interrompido. |
 | Cada documento (despesa ou recibo) fica conciliado com um único movimento. Cada movimento fica conciliado com um único conjunto de documentos, cuja soma tem de ser igual ao valor do banco. | Office Script: `DOCUMENTO_JA_CONCILIADO`, `MOVIMENTO_JA_CONCILIADO` e `VALIDACAO`. |
 | Só se concilia o que está na base mãe. | Office Script: `MOVIMENTO_INEXISTENTE` («grave primeiro o extracto»). |
 
@@ -60,40 +61,46 @@ O pacote não está neste repositório público, porque contém os identificador
    substitua o código.
 
 ### 3.2 Importar o fluxo TES_BASE_MAE
+O pacote **não traz a acção «Executar script»**. O identificador do script só existe na conta de cada utilizador, e o
+Power Automate valida-o ao importar: com um marcador no lugar dele, recusa com «Unable to parse script reference». Por
+isso o pacote traz um bloco **Script** com um marcador, e o resto do fluxo lê o resultado com
+`last(result('Script'))`, seja qual for o nome da acção.
+
 1. Em make.powerautomate.com, vá a **Os meus fluxos → Importar → Importar pacote (legado)** e escolha
    `TES_BASE_MAE_pacote.zip`.
-2. Em **Configuração da importação**, escolha **Criar como novo**.
-3. Em **Recursos relacionados**, escolha as ligações:
-   - **Excel Online (Business)**: a mesma do FIN_IA_CONCILIACAO;
-   - **SharePoint**: uma ligação existente ou uma nova.
-4. Clique em **Importar** e depois abra o fluxo para editar.
-5. Na acção **Executar script**, confirme:
+2. Escolha **Criar como novo** e a ligação do **SharePoint**. Clique em **Importar**.
+3. Abra o fluxo para editar e vá a **Validar_Operacao → Verdadeiro → Script**.
+4. Por baixo do marcador `SUBSTITUIR_por_Executar_script`, acrescente **Excel Online (Business) → Executar script**:
    - Localização: *SIR MOTORS INTERNATIONAL*;
    - Biblioteca: *Documentos*;
    - Ficheiro: `General/Tesouraria e Facturação/01_Bases_de_Dados/Sistema de Tesouraria 1.2.xlsx`;
-   - Script: **TesourariaBaseMae** (o pacote traz `SELECCIONAR_TesourariaBaseMae` como marcador; escolha o script na lista);
-   - Parâmetro `pedido`: deve ficar `string(outputs('Pedido'))`.
-6. Na acção **Criar ficheiro**, confirme o site `https://sirmotos.sharepoint.com/sites/SIRMOTORSINTERNATIONAL`.
-   A pasta é `/Documentos Compartilhados/General/Tesouraria e Facturação/` mais a pasta enviada pelo site, por exemplo
-   `02_Importacoes/Bancos/BCI`.
-7. **Guarde** o fluxo. Depois abra o accionador **Quando um pedido HTTP é recebido** e copie o **URL HTTP POST**.
-8. No site, em **Conectar base de dados**, cole esse URL em **Endpoint HTTPS do TES_BASE_MAE**. Fica guardado só nesse
-   navegador e nunca vai para o GitHub.
+   - Script: **TesourariaBaseMae**;
+   - `pedido`: a expressão `string(outputs('Pedido'))`.
+5. Elimine o marcador e **guarde** o fluxo.
+6. Se a acção **Criar ficheiro** pedir, escolha o site `SIR MOTORS INTERNATIONAL`.
+7. Copie o **URL HTTP POST** do accionador e cole-o no site, em **Conectar base de dados → Endpoint HTTPS do
+   TES_BASE_MAE**. Fica guardado só nesse navegador e nunca vai para o GitHub.
+
+Enquanto faltar o passo 4, o fluxo responde `SCRIPT_POR_CONFIGURAR` e não grava nada.
+
+O script só aparece na lista se tiver sido criado com a **mesma conta da ligação do Excel**. Se não aparecer, use essa
+conta para o criar, ou partilhe o script com o livro (Excel → script → … → *Partilhar com outras pessoas neste livro*).
 
 Notas sobre o fluxo:
 - O accionador aceita **Qualquer pessoa** (URL com `sig=`), como os outros fluxos do site. Se a política do tenant o
   impedir, peça ao administrador uma excepção para este fluxo.
-- **Uma execução de cada vez** (simultaneidade 1): a verificação de duplicados nunca corre em paralelo, nem com dois
-  utilizadores a importar ao mesmo tempo.
+- **Sem controlo de simultaneidade no accionador:** o Power Automate não o permite com resposta HTTP síncrona (erro
+  `InvalidConcurrencyConfiguration`). A exclusão mútua é feita pela **reserva do livro** no Office Script: quem chega
+  com outra gravação em curso recebe `EM_USO` e o site repete sozinho.
 - O URL com `sig=` dá acesso ao fluxo. Use-o só em dispositivos de confiança e, se for exposto, regenere-o.
 
 ### 3.3 O que o fluxo faz
 ```
-Quando um pedido HTTP é recebido (concorrência 1)
+Quando um pedido HTTP é recebido
 └─ Validar_Operacao: a operação começa por «banco.» ou «base.»?
    ├─ Sim
    │  ├─ Pedido = removeProperty(corpo, 'ficheiro')      → o ficheiro original nunca vai para o script
-   │  ├─ Executar script TesourariaBaseMae (pedido)
+   │  ├─ Script (bloco): Executar script TesourariaBaseMae (pedido), acrescentado depois de importar
    │  ├─ Resposta 200 com o resultado do script     → o site não espera pelo SharePoint
    │  ├─ Guardar_Ficheiro: sucesso, importar_extrato e ficheiro enviado?
    │  │  └─ Criar ficheiro (SharePoint) com o nome_padronizado devolvido pelo script
@@ -143,8 +150,8 @@ No **site**:
 Limites a ter em conta:
 - Cada lote conta para o limite diário de execuções de scripts por utilizador.
 - O limite do *Executar script* é 120 s. Se um lote falhar, repetir é seguro: o extracto fica `Parcial` até ao último lote.
-- **Uma execução de cada vez** (simultaneidade 1) garante que nunca há duplicados. O preço é que dois utilizadores a
-  gravar ao mesmo tempo esperam um pelo outro.
+- A **reserva do livro** garante que duas gravações nunca correm ao mesmo tempo. O preço é que dois utilizadores a gravar
+  ao mesmo tempo esperam um pelo outro; o site repete de 5 em 5 s, até 2 minutos. Custa 1 leitura e 2 escritas por pedido.
 - `base.consultar` devolve as tabelas inteiras. Hoje são cerca de 7 000 movimentos, entre 1 e 2 MB. Com vários anos
   será preciso filtrar por período.
 

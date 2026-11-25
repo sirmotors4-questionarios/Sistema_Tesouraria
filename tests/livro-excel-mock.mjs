@@ -6,6 +6,8 @@ import vm from "node:vm";
 const fonte = stripTypeScriptTypes(readFileSync(new URL("../office-scripts/TesourariaBaseMae.ts", import.meta.url), "utf8"));
 const ctx = vm.createContext({});
 vm.runInContext(fonte, ctx);
+// Chamada directa com o texto bruto do parâmetro «pedido» (para testar o diagnóstico)
+globalThis.__mainBaseMae = (w, texto) => ctx.main(w, texto);
 
 export function livro() {
   const tabelas = new Map(), folhas = new Map();
@@ -13,6 +15,12 @@ export function livro() {
   function novaFolha(nome) {
     const f = {nome, cab: null, tabela: null, formatos: {}, abaixo: []};
     f.getRangeByIndexes = (r, c, nr, nc) => intervalo(f, r, c, nr, nc);
+    // Células soltas por endereço (ex.: reserva em BM_Controlo!A2:C2)
+    f.celulas = {};
+    f.getRange = (end) => ({
+      getValues: () => { cont.leituras++; return [f.celulas[end] ? f.celulas[end].slice() : ["", "", ""]]; },
+      setValues: (vs) => { cont.escritas++; f.celulas[end] = vs[0].slice(); },
+    });
     f.addTable = () => {
       const t = {headers: f.cab.slice(), rows: [f.cab.map(() => "")], folha: f};
       Object.assign(t, {
