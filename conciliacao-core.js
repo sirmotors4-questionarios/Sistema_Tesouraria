@@ -84,7 +84,7 @@
     data: ["data", "data mov", "data movimento", "data do movimento", "data operacao", "data lancamento", "data contabilistica",
       "dt mov", "date", "transaction date", "posting date", "booking date", "data transaccao", "data transacao"],
     dataValor: ["data valor", "data-valor", "dt valor", "value date", "valor data"],
-    descricao: ["descricao", "descritivo", "descricao do movimento", "detalhes", "detalhe", "narrativa", "historico",
+    descricao: ["descricao", "descritivo", "descricao movimento", "descricao do movimento", "detalhes", "detalhe", "narrativa", "historico",
       "movimento", "description", "details", "narrative", "particulars", "transaction details", "operacao", "designacao"],
     referencia: ["referencia", "ref", "ref.", "n doc", "no doc", "n. doc", "documento", "n documento", "num doc", "cheque",
       "n cheque", "reference", "doc no", "document", "ref. banco", "referencia banco"],
@@ -96,7 +96,7 @@
     saldo: ["saldo", "saldo contabilistico", "saldo disponivel", "balance", "running balance", "saldo apos movimento", "saldo final"],
   };
   const CAMPOS = Object.keys(SINONIMOS);
-  const chaveCabecalho = (h) => chaveTexto(h).replace(/[º°ª]/g, "").replace(/[:*]/g, "").replace(/\s+/g, " ").trim();
+  const chaveCabecalho = (h) => chaveTexto(String(h ?? "").replace(/_/g, " ")).replace(/[º°ª]/g, "").replace(/[:*]/g, "").replace(/\s+/g, " ").trim();
   function campoExacto(h) {
     const k = chaveCabecalho(h).replace(/\.$/, "");
     for (const c of CAMPOS) if (SINONIMOS[c].includes(k) || SINONIMOS[c].includes(k + ".")) return c;
@@ -119,13 +119,21 @@
     for (let i = 0; i < limite; i++) {
       const linha = matriz[i] || [];
       const mapa = {};
-      linha.forEach((h, j) => { const c = campoDoCabecalho(h); if (c && mapa[c] == null) mapa[c] = j; });
+      // Títulos exactos primeiro ("Descricao"), só depois os parciais ("Num_Operacao" não pode tirar o lugar ao descritivo)
+      linha.forEach((h, j) => { const c = campoExacto(h); if (c && mapa[c] == null) mapa[c] = j; });
+      const usadas = new Set(Object.values(mapa));
+      linha.forEach((h, j) => { if (usadas.has(j)) return; const c = campoDoCabecalho(h); if (c && mapa[c] == null) mapa[c] = j; });
       const temValor = mapa.debito != null || mapa.credito != null || mapa.montante != null;
       const pontos = Object.keys(mapa).length;
       if ((mapa.data != null || mapa.dataValor != null) && temValor && (!melhor || pontos > melhor.pontos))
         melhor = {linha: i, mapa, pontos};
     }
     if (melhor && melhor.mapa.data == null) { melhor.mapa.data = melhor.mapa.dataValor; }
+    if (melhor && melhor.mapa.saldo == null) {
+      const cab = matriz[melhor.linha] || [], ult = Math.max(melhor.mapa.debito ?? -1, melhor.mapa.credito ?? -1, melhor.mapa.montante ?? -1);
+      const j = ult + 1, amostra = matriz.slice(melhor.linha + 1, melhor.linha + 21).filter((l) => texto(l[j]));
+      if (ult >= 0 && !texto(cab[j]) && amostra.length >= 2 && amostra.every((l) => Number.isFinite(numero(l[j])))) melhor.mapa.saldo = j;
+    }
     return melhor;
   }
 
@@ -148,8 +156,9 @@
       const d = data(celula(l, "data"), anoRef) || data(celula(l, "dataValor"), anoRef);
       let valor = NaN;
       const deb = numero(celula(l, "debito")), cred = numero(celula(l, "credito"));
-      if (Number.isFinite(deb) && deb !== 0) valor = -Math.abs(deb);
-      if (Number.isFinite(cred) && cred !== 0) valor = Number.isFinite(valor) ? valor + Math.abs(cred) : Math.abs(cred);
+      // Débito negativo é um estorno (entra dinheiro); crédito negativo, o inverso.
+      if (Number.isFinite(deb) && deb !== 0) valor = -deb;
+      if (Number.isFinite(cred) && cred !== 0) valor = Number.isFinite(valor) ? valor + cred : cred;
       if (!Number.isFinite(valor) && mapa.montante != null) valor = numero(celula(l, "montante"));
       const saldo = numero(celula(l, "saldo"));
       if (!d) {
@@ -160,8 +169,8 @@
           movimentos[movimentos.length - 1].descricao = texto(movimentos[movimentos.length - 1].descricao + " " + celula(l, "descricao"));
         continue;
       }
-      if (/saldo (inicial|anterior|de abertura)|opening balance|brought forward/.test(linhaTexto) && !Number.isFinite(valor)) {
-        if (Number.isFinite(saldo)) saldoInicial = saldo;
+      if (/saldo (inicial|anterior|de abertura)|opening balance|brought forward/.test(chaveTexto(celula(l, "descricao")) || linhaTexto) && (!Number.isFinite(valor) || /saldo (inicial|anterior|de abertura)|opening balance/.test(chaveTexto(celula(l, "descricao"))))) {
+        saldoInicial = Number.isFinite(saldo) ? saldo : Number.isFinite(valor) ? valor : saldoInicial;
         continue;
       }
       if (!Number.isFinite(valor) || valor === 0) {
@@ -311,7 +320,7 @@
       problemas.push("Saldo inicial + movimentos (" + formatar(inicial + debitos + creditos) + ") difere do saldo final (" + formatar(final) + ").");
     const vistos = new Map(), duplicados = [];
     for (const m of movimentos) {
-      const k = m.chave + "|" + (m.saldo ?? "");
+      const k = m.chave + "|" + texto(m.referencia).replace(/^0+/, "") + "|" + (m.saldo ?? "");
       if (vistos.has(k)) duplicados.push(m.id); else vistos.set(k, m.id);
     }
     if (duplicados.length) problemas.push(duplicados.length + " movimento(s) repetido(s) no ficheiro (mesma data, valor, descrição e saldo).");
